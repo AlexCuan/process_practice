@@ -36,6 +36,7 @@ int main ()
             {
                 printf("Child %d Completed\n", pid_fin);
                 printf("with status: %d\n", WEXITSTATUS(status));
+                printf("Hola mundo");
             }
         }
     }
