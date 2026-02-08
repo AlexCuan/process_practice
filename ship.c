@@ -21,6 +21,78 @@ typedef struct {
     pid_t pid;
 } Ship;
 
+// Global pointer: to alter the ship inside the signal handler functions
+Ship *aux_ship = NULL; // Global pointer: to alter the ship inside the signal handler functions
+int ship_speed = 1; // Global speed variable: to determine the random speed T
+
+// Signal management
+void sigusr1_handler(int signal){
+    if (aux_ship != NULL) {
+        aux_ship->gold += 10;
+    }
+}
+
+void sigusr2_handler(int signal){
+    if (aux_ship != NULL) {
+        if(aux_ship->gold >= 10){
+            aux_ship->gold -= 10;
+        }
+        else {
+            aux_ship->gold = 0;
+        }
+
+        if(aux_ship->food >= 10){
+            aux_ship->food -= 10;
+        }
+        else {
+            aux_ship->food = 0;
+        }
+    }
+}
+
+void sigquit_handler(int signal) {
+    if (aux_ship != NULL) {
+        int end_gold = aux_ship->gold;
+        exit(end_gold);
+    }
+    exit(0);
+}
+
+void sigstp_handler(int signal) {
+    if (aux_ship != NULL) {
+        printf("Ship PID: %d, Location: (%d, %d), Food: %d, Gold: %d\n", getpid(), aux_ship->x, aux_ship->y, aux_ship->food, aux_ship->gold);
+        fflush(stdout);
+    }
+}
+
+void sigalrm_handler(int signal) {
+    if (aux_ship != NULL) {
+        int direction = rand() % 4;
+        int move_x = aux_ship->x;
+        int move_y = aux_ship->y;
+
+        switch(direction) {
+            case 0:         // W
+                move_y--;
+            case 1:         // A
+                move_x--;
+            case 2:         // S
+                move_y++;
+            case 3:         // D
+                move_x++;
+            default:
+                break;
+        }
+
+        if (map_can_sail(aux_ship->mapa, move_x, move_y)) {
+             aux_ship->x = move_x;
+             aux_ship->y = move_y;
+        }
+
+        alarm(ship_speed);
+    }
+}
+
 // Inicialización barco
 void ship_init(Ship *s, Map *mapa, int x, int y, int food) {
     s->mapa = mapa;
@@ -70,13 +142,39 @@ void move_randomly(Ship *s) {
 }
 
 void move_captain(Ship *s) {
-    // Para futuras implementaciones
+    aux_ship = s;
+
+    if (signal(SIGUSR1, sigusr1_handler) == SIG_ERR) {
+        perror(strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (signal(SIGUSR2, sigusr2_handler) == SIG_ERR) {
+        perror(strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (signal(SIGQUIT, sigquit_handler) == SIG_ERR) {
+        perror(strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (signal(SIGTSTP, sigstp_handler) == SIG_ERR) {
+        perror(strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (signal(SIGALRM, sigalrm_handler) == SIG_ERR) {
+        perror(strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    alarm(ship_speed);
+
+    while (1)
+        pause();
 }
 
 /*
  * Función para parsear argumentos. Podría usar getopt, pero se hace manualmente para mayor claridad.
  */
-static int parse_args(int argc, char *argv[], char **map_file, int *pos_x, int *pos_y, int *food, int *random_steps, 
+static int parse_args(int argc, char *argv[], char **map_file, int *pos_x, int *pos_y, int *food, int *random_steps,
                         int *random_speed, int *use_captain) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--map") == 0 && i + 1 < argc) {
@@ -166,7 +264,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    //Carga del mapa 
+    //Carga del mapa
     Map *mapa = map_load(map_file);
     if (!mapa) {
         fprintf(stderr, "Error cargando el mapa: %s\n", map_file);
@@ -177,12 +275,13 @@ int main(int argc, char *argv[]) {
     Ship ship;
     if (map_can_sail(mapa, pos_x, pos_y)) {
         ship_init(&ship, mapa, pos_x, pos_y, food);
+        ship_speed = random_speed;
     } else {
         fprintf(stderr, "Posición inicial inválida.\n");
         map_destroy(mapa);
         exit(1);
     }
-    
+
     fprintf(stderr, "Barco PID: %d\n", ship.pid);
 
     //Modo random o con capitan
@@ -200,7 +299,7 @@ int main(int argc, char *argv[]) {
     }
 
     fprintf(stderr, "Barco %d ha terminado con estado %d.\n", ship.pid, ship.gold);
-    
+
     map_destroy(mapa);
     return ship.gold;
 }
