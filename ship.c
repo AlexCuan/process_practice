@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <sys/types.h>
 #include "map.h"
+#include <signal.h>
 
 // Direcciones: {dx, dy} -> Abajo, Derecha, Arriba, Izquierda
 int directions[4][2] = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
@@ -21,14 +22,21 @@ typedef struct {
     pid_t pid;
 } Ship;
 
-// Global pointer: to alter the ship inside the signal handler functions
-Ship *aux_ship = NULL; // Global pointer: to alter the ship inside the signal handler functions
-int ship_speed = 1; // Global speed variable: to determine the random speed T
+// Global variables for Signal Handlers
+Ship *aux_ship = NULL;
+int ship_speed = 1;
+int steps_remaining = -1; // New global to track --random N steps
+
+// Forward declaration
+void move_randomly(Ship *s);
+void ship_print(Ship *s);
 
 // Signal management
 void sigusr1_handler(int signal){
     if (aux_ship != NULL) {
         aux_ship->gold += 10;
+        // Optional: Print status to see the effect immediately
+        fprintf(stderr, "Signal USR1 received: Gold +10 (Total: %d)\n", aux_ship->gold);
     }
 }
 
@@ -36,23 +44,25 @@ void sigusr2_handler(int signal){
     if (aux_ship != NULL) {
         if(aux_ship->gold >= 10){
             aux_ship->gold -= 10;
-        }
-        else {
+        } else {
             aux_ship->gold = 0;
         }
 
         if(aux_ship->food >= 10){
             aux_ship->food -= 10;
-        }
-        else {
+        } else {
             aux_ship->food = 0;
         }
+        // Optional: Print status
+        fprintf(stderr, "Signal USR2 received: Attacked! Food: %d, Gold: %d\n", aux_ship->food, aux_ship->gold);
     }
 }
 
 void sigquit_handler(int signal) {
     if (aux_ship != NULL) {
         int end_gold = aux_ship->gold;
+        fprintf(stderr, "Barco %d ha terminado con estado %d (SIGQUIT).\n", aux_ship->pid, end_gold);
+        if (aux_ship->mapa) map_destroy(aux_ship->mapa);
         exit(end_gold);
     }
     exit(0);
@@ -60,36 +70,54 @@ void sigquit_handler(int signal) {
 
 void sigstp_handler(int signal) {
     if (aux_ship != NULL) {
-        printf("Ship PID: %d, Location: (%d, %d), Food: %d, Gold: %d\n", getpid(), aux_ship->x, aux_ship->y, aux_ship->food, aux_ship->gold);
+        printf("Ship PID: %d, Location: (%d, %d), Food: %d, Gold: %d\n",
+               aux_ship->pid, aux_ship->x, aux_ship->y, aux_ship->food, aux_ship->gold);
         fflush(stdout);
     }
 }
 
 void sigalrm_handler(int signal) {
     if (aux_ship != NULL) {
-        int direction = rand() % 4;
-        int move_x = aux_ship->x;
-        int move_y = aux_ship->y;
+        // Use the existing logic to move, update map, checks islands, etc.
+        move_randomly(aux_ship);
+        ship_print(aux_ship);
 
-        switch(direction) {
-            case 0:         // W
-                move_y--;
-            case 1:         // A
-                move_x--;
-            case 2:         // S
-                move_y++;
-            case 3:         // D
-                move_x++;
-            default:
-                break;
-        }
-
-        if (map_can_sail(aux_ship->mapa, move_x, move_y)) {
-             aux_ship->x = move_x;
-             aux_ship->y = move_y;
+        // Handle step counting for --random mode
+        if (steps_remaining > 0) {
+            steps_remaining--;
+            if (steps_remaining == 0) {
+                int end_gold = aux_ship->gold;
+                fprintf(stderr, "Barco %d ha terminado sus pasos con estado %d.\n", aux_ship->pid, end_gold);
+                if (aux_ship->mapa) map_destroy(aux_ship->mapa);
+                exit(end_gold);
+            }
         }
 
         alarm(ship_speed);
+    }
+}
+
+// Helper to register all signals
+void setup_signals() {
+    if (signal(SIGUSR1, sigusr1_handler) == SIG_ERR) {
+        perror("Error setting up SIGUSR1");
+        exit(EXIT_FAILURE);
+    }
+    if (signal(SIGUSR2, sigusr2_handler) == SIG_ERR) {
+        perror("Error setting up SIGUSR2");
+        exit(EXIT_FAILURE);
+    }
+    if (signal(SIGQUIT, sigquit_handler) == SIG_ERR) {
+        perror("Error setting up SIGQUIT");
+        exit(EXIT_FAILURE);
+    }
+    if (signal(SIGTSTP, sigstp_handler) == SIG_ERR) {
+        perror("Error setting up SIGTSTP");
+        exit(EXIT_FAILURE);
+    }
+    if (signal(SIGALRM, sigalrm_handler) == SIG_ERR) {
+        perror("Error setting up SIGALRM");
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -101,13 +129,10 @@ void ship_init(Ship *s, Map *mapa, int x, int y, int food) {
     s->food = food;
     s->gold = 0;
     s->pid = getpid();
-    // Pintamos el barco en el mapa
     map_set_ship(s->mapa, s->x, s->y);
 }
 
-
 void ship_print(Ship *s) {
-    // Usamos stderr para mensajes de log
     fprintf(stderr, "Barco %d en (%d, %d) con %d comida y %d oro.\n", s->pid, s->x, s->y, s->food, s->gold);
 }
 
@@ -141,41 +166,9 @@ void move_randomly(Ship *s) {
     }
 }
 
-void move_captain(Ship *s) {
-    aux_ship = s;
-
-    if (signal(SIGUSR1, sigusr1_handler) == SIG_ERR) {
-        perror(strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    if (signal(SIGUSR2, sigusr2_handler) == SIG_ERR) {
-        perror(strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    if (signal(SIGQUIT, sigquit_handler) == SIG_ERR) {
-        perror(strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    if (signal(SIGTSTP, sigstp_handler) == SIG_ERR) {
-        perror(strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    if (signal(SIGALRM, sigalrm_handler) == SIG_ERR) {
-        perror(strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    alarm(ship_speed);
-
-    while (1)
-        pause();
-}
-
-/*
- * Función para parsear argumentos. Podría usar getopt, pero se hace manualmente para mayor claridad.
- */
+// Parsing arguments
 static int parse_args(int argc, char *argv[], char **map_file, int *pos_x, int *pos_y, int *food, int *random_steps,
-                        int *random_speed, int *use_captain) {
+                      int *random_speed, int *use_captain) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--map") == 0 && i + 1 < argc) {
             *map_file = argv[++i];
@@ -235,6 +228,7 @@ static int parse_args(int argc, char *argv[], char **map_file, int *pos_x, int *
     }
     return 0;
 }
+
 int main(int argc, char *argv[]) {
 
     // Valores por defecto
@@ -264,18 +258,15 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    //Carga del mapa
     Map *mapa = map_load(map_file);
     if (!mapa) {
         fprintf(stderr, "Error cargando el mapa: %s\n", map_file);
         return 1;
     }
 
-    //Verificar posición inicial y colcar barco
     Ship ship;
     if (map_can_sail(mapa, pos_x, pos_y)) {
         ship_init(&ship, mapa, pos_x, pos_y, food);
-        ship_speed = random_speed;
     } else {
         fprintf(stderr, "Posición inicial inválida.\n");
         map_destroy(mapa);
@@ -284,22 +275,30 @@ int main(int argc, char *argv[]) {
 
     fprintf(stderr, "Barco PID: %d\n", ship.pid);
 
-    //Modo random o con capitan
+    // --- SETUP GLOBALS FOR SIGNALS ---
+    aux_ship = &ship;
+    ship_speed = random_speed;
+    steps_remaining = random_steps;
+
+    // Register signals for BOTH modes (random and captain)
+    setup_signals();
+    srand(time(NULL) ^ getpid());
 
     if (use_captain) {
-        move_captain(&ship);
+
+        while (1) {
+            pause();
+        }
     } else {
-        srand(time(NULL) ^ getpid()); // Semilla para rand
-        for (int i = 0; i < random_steps; i++) {
-            sleep(random_speed);
-            move_randomly(&ship);
-            ship_print(&ship);
-            //map_print(mapa);//Opcional para hacerlo más visual
+
+        alarm(ship_speed);
+        while (1) {
+            pause();
         }
     }
 
-    fprintf(stderr, "Barco %d ha terminado con estado %d.\n", ship.pid, ship.gold);
-
+    // This part is likely unreachable because handlers call exit(),
+    // but kept for safety.
     map_destroy(mapa);
     return ship.gold;
 }
