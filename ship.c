@@ -25,7 +25,7 @@ typedef struct {
 // Global variables for Signal Handlers
 Ship *aux_ship = NULL;
 int ship_speed = 1;
-int steps_remaining = -1; // New global to track --random N steps
+int steps_remaining = -1;
 
 // Forward declaration
 void move_randomly(Ship *s);
@@ -34,10 +34,10 @@ void ship_print(Ship *s);
 // Check for special events (if ship docks or arrives at an island)
 void check_event(Ship *s) {
     char cell_type = map_get_cell_type(s->mapa, s->x, s->y);
-    if (cell_type == BAR) { // Ship arrives at an island
+    if (cell_type == BAR) {
         s->gold += 10;
         fprintf(stderr, "Barco %d ha alcanzado una isla (%d, %d), oro incrementado a %d.\n", s->pid, s->x, s->y, s->gold);
-    } else if (cell_type == HOME) { // Ship docks at port
+    } else if (cell_type == HOME) {
         s->food += 20;
         fprintf(stderr, "Barco %d ha atracado con un puerto (%d, %d), comida aumentada a %d.\n", s->pid, s->x, s->y, s->food);
     }
@@ -47,7 +47,6 @@ void check_event(Ship *s) {
 void sigusr1_handler(int signal){
     if (aux_ship != NULL) {
         aux_ship->gold += 10;
-        // Optional: Print status to see the effect immediately
         fprintf(stderr, "Señal USR1 recibida: +10 Oro (Total: %d)\n", aux_ship->gold);
     }
 }
@@ -65,7 +64,6 @@ void sigusr2_handler(int signal){
         } else {
             aux_ship->food = 0;
         }
-        // Optional: Print status
         fprintf(stderr, "Señal USR2 recibida: ¡Ataque! Comida: %d, Oro: %d\n",
             aux_ship->food, aux_ship->gold);
     }
@@ -92,19 +90,14 @@ void sigstp_handler(int signal) {
 
 void sigalrm_handler(int signal) {
     if (aux_ship != NULL) {
-        // Stop if no steps left (if we are counting steps)
         if (steps_remaining == 0) {
             fprintf(stderr, "Barco %d ha terminado sus pasos aleatorios.\n", aux_ship->pid);
             exit(aux_ship->gold);
         }
 
-        // Check food constraint
         if (aux_ship->food < 5) {
              fprintf(stderr, "Barco %d no tiene suficiente comida para moverse.\n", aux_ship->pid);
-             // If we can't move, do we exit or wait?
-             // Logic suggests if we can't move, we might as well stop or just sit.
-             // We will continue the alarm loop just in case we get food via signals,
-             // but we won't move this turn.
+
         } else {
             int dir_idx = rand() % 4;
             // directions: {{0, 1} (Down), {1, 0} (Right), {0, -1} (Up), {-1, 0} (Left)}
@@ -138,13 +131,10 @@ void sigalrm_handler(int signal) {
         if (steps_remaining > 0) {
             steps_remaining--;
         }
-
-        // Schedule next move
         alarm(ship_speed);
     }
 }
 
-// Helper to register all signals
 void setup_signals() {
     if (signal(SIGUSR1, sigusr1_handler) == SIG_ERR) {
         perror("Error setting up SIGUSR1");
@@ -168,7 +158,7 @@ void setup_signals() {
     }
 }
 
-// Command Mode
+// Command Mode Helper
 void shift_position(Ship *s, int shift_x, int shift_y) {
     if (s->food < 5) {
         fprintf(stderr, "Barco %d sin comida suficiente.\n", s->pid);
@@ -189,6 +179,9 @@ void shift_position(Ship *s, int shift_x, int shift_y) {
 
         check_event(s);
 
+
+        map_print(s->mapa);
+
         printf("OK\n");
         fflush(stdout);
         fprintf(stderr, "Barco %d en (%d, %d) con %d comida y %d oro.\n",
@@ -202,33 +195,46 @@ void shift_position(Ship *s, int shift_x, int shift_y) {
 }
 
 void command_mode(Ship *s) {
-    char buffer[64];
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t nread;
 
-    alarm(0);   // Disable the alarm in case it is set
+    alarm(0);   // Disable the alarm
 
-    fprintf(stderr, "PID de barco: %d. Modo captain\n", s->pid);
+    fprintf(stderr, "Barco PID: %d. Modo captain\n", s->pid);
 
-    while (scanf("%63s", buffer) != EOF) {
-        if (strcasecmp(buffer, "up") == 0) {
+    // Read lines from stdin until EOF or error
+    while ((nread = getline(&line, &len, stdin)) != -1) {
+
+        // Remove the newline character at the end if it exists
+        if (nread > 0 && line[nread - 1] == '\n') {
+            line[nread - 1] = '\0';
+        }
+
+        if (strcasecmp(line, "up") == 0) {
             shift_position(s, 0, -1);
         }
-        else if (strcasecmp(buffer, "down") == 0) {
+        else if (strcasecmp(line, "down") == 0) {
             shift_position(s, 0, 1);
         }
-        else if (strcasecmp(buffer, "left") == 0) {
+        else if (strcasecmp(line, "left") == 0) {
             shift_position(s, -1, 0);
         }
-        else if (strcasecmp(buffer, "right") == 0) {
+        else if (strcasecmp(line, "right") == 0) {
             shift_position(s, 1, 0);
         }
-        else if (strcasecmp(buffer, "exit") == 0) {
+        else if (strcasecmp(line, "exit") == 0) {
             fprintf(stderr, "Barco %d saliendo con oro %d.\n", s->pid, s->gold);
+            free(line);
             exit(s->gold);
         }
         else {
-            fprintf(stderr, "Comando desconocido: %s\n", buffer);
+            if (strlen(line) > 0) { // Ignore empty lines
+                fprintf(stderr, "Comando desconocido: %s\n", line);
+            }
         }
     }
+    free(line);
 }
 
 // Inicialización barco
@@ -347,18 +353,15 @@ static int parse_args(int argc, char *argv[], char **map_file, int *pos_x, int *
 
 int main(int argc, char *argv[]) {
 
-    // Valores por defecto
-    // map_file apunta a un string literal
-
     char *map_file = "map.txt";
-    int pos_x = 0;
-    int pos_y = 0;
+
+    int pos_x = 1;
+    int pos_y = 1;
     int food = 100;
     int random_steps = -1;
     int random_speed = 1;
     int use_captain = 0;
 
-    // Parseo de argumentos
     if (parse_args(argc, argv, &map_file, &pos_x, &pos_y, &food, &random_steps, &random_speed, &use_captain) != 0) {
         return 1;
     }
@@ -384,37 +387,30 @@ int main(int argc, char *argv[]) {
     if (map_can_sail(mapa, pos_x, pos_y)) {
         ship_init(&ship, mapa, pos_x, pos_y, food);
     } else {
-        fprintf(stderr, "Posición inicial inválida.\n");
+        fprintf(stderr, "Posición inicial (%d, %d) inválida.\n", pos_x, pos_y);
         map_destroy(mapa);
         exit(1);
     }
 
     fprintf(stderr, "Barco PID: %d\n", ship.pid);
 
-    // --- SETUP GLOBALS FOR SIGNALS ---
     aux_ship = &ship;
     ship_speed = random_speed;
     steps_remaining = random_steps;
 
-    // Register signals for BOTH modes (random and captain)
     setup_signals();
     srand(time(NULL) ^ getpid());
 
     if (use_captain) {
-
-        while (1) {
-            pause();
-        }
+        // FIXED: Now we correctly call the function to read commands [cite: 186-187]
+        command_mode(&ship);
     } else {
-
         alarm(ship_speed);
         while (1) {
             pause();
         }
     }
 
-    // This part is likely unreachable because handlers call exit(),
-    // but kept for safety.
     map_destroy(mapa);
     return ship.gold;
 }
