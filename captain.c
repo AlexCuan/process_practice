@@ -241,7 +241,7 @@ int main(int argc, char* argv[])
     } else {
         char cmd_line[256];
         while (ships_count > 0) {
-            printf("Introducir comando [exit | status | (Num, up/down/right/left/exit]: ");
+            printf("Introduce command [exit | status | up/down/right/left]: ");
             fflush(stdout);
 
             // Read standard input
@@ -254,7 +254,7 @@ int main(int argc, char* argv[])
             if (strlen(cmd_line) == 0) continue;
 
             if (strcasecmp(cmd_line, "exit") == 0) {
-                printf("Saliendo y terminando todos los barcos.\n");
+                printf("Exiting and terminating all ships.\n");
                 // Issue SIGQUIT to all active ships
                 for (int i = 0; i < 100; i++) {
                     if (launched_ships[i].active) {
@@ -290,14 +290,14 @@ int main(int argc, char* argv[])
                         if (total_read > 0) {
                             buf[total_read] = '\0';
                             int pid, x, y, food, gold;
-                            if (sscanf(buf, "PID de barco: %d, Ubicación: (%d, %d), Comida: %d, Oro: %d", &pid, &x, &y, &food, &gold) == 5) {
-                                printf("Barco %d Vivo (ID: %d, PID: %d) En: (%d, %d) Comida: %d Oro: %d\n",
+                            if (sscanf(buf, "Ship ID: %d, Location: (%d, %d), Food: %d, Gold: %d", &pid, &x, &y, &food, &gold) == 5) {
+                                printf("Ship %d alive (ID: %d, PID: %d) Location: (%d, %d) Food: %d Gold: %d\n",
                                        launched_ships[i].id, launched_ships[i].id, pid, x, y, food, gold);
                             }
                         }
                     }
                 }
-                printf("número de barcos vivos: %d\n", ships_count);
+                printf("Number of ships alive: %d\n", ships_count);
             }
             else {
                 // Targeted Ship Command Parsing
@@ -314,7 +314,7 @@ int main(int argc, char* argv[])
 
                     if (found_idx != -1) {
                         if (strcasecmp(action, "exit") == 0) {
-                            printf("Enviando acción exit al barco %d\n", target_id);
+                            printf("Sending exit action to ship %d...\n", target_id);
                             // Push string securely through the pipe to the ship's stdin
                             dprintf(launched_ships[found_idx].pipe_to_ship[1], "exit\n");
                         }
@@ -343,7 +343,7 @@ int main(int argc, char* argv[])
                             }
 
                             if (collision) {
-                                printf("Mover %s para barco %d no es posible debido a colisión.\n", action, target_id);
+                                printf("Cannot realize %sward movement action for ship %d (collision).\n", action, target_id);
                             } else {
                                 // If legal non-rock space, lock coordinates locally to guarantee synch with ship
                                 if (map_can_sail(map, new_x, new_y)) {
@@ -353,12 +353,12 @@ int main(int argc, char* argv[])
                                 dprintf(launched_ships[found_idx].pipe_to_ship[1], "%s\n", action);
                             }
                         } else {
-                            printf("Comando desconocido.\n");
+                            printf("Unknown command.\n");
                         }
                     } else {
-                        printf("Barco %d no encontrado o no está vivo.\n", target_id);
+                        printf("Ship %d not found or not alie.\n", target_id);
                     }
-                    printf("Número de barcos vivos: %d\n", ships_count);
+                    printf("Number of ships alive: %d\n", ships_count);
                 }
             }
         }
