@@ -5,11 +5,19 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <errno.h>
+#include "map.h"
 
 typedef struct
 {
     int id;
     pid_t pid;
+
+    // Pipe establishment
+    int pipe_to_ship[2];   // Captain writes, Ship reads (stdin)
+    int pipe_from_ship[2]; // Ship writes (stdout), Captain reads
+    int x, y;              // Track position for collision detection
+    int active;            // 1 if alive, 0 if finished
 } ShipRecord;
 
 
@@ -28,6 +36,11 @@ void handle_sigchld(int sig) {
             if (launched_ships[i].pid == pid) {
                 finished_id = launched_ships[i].id;
                 launched_ships[i].pid = 0;
+
+                launched_ships[i].active = 0;
+                close(launched_ships[i].pipe_to_ship[1]);
+                close(launched_ships[i].pipe_from_ship[0]);
+
                 break;
             }
         }
@@ -68,23 +81,24 @@ int main(int argc, char* argv[])
 
     for (int i = 1; i < argc; i++)
     {
-        if (strcmp(argv[i], "--name") == 0) {
+        if (strcasecmp(argv[i], "--name") == 0) {
             if (i + 1 < argc) name = argv[++i];
             else { fprintf(stderr, "Error: --name requires a value.\n"); return 1; }
         }
-        else if (strcmp(argv[i], "--map") == 0) {
+        else if (strcasecmp(argv[i], "--map") == 0) {
             if (i + 1 < argc) map_file = argv[++i];
             else { fprintf(stderr, "Error: --map requires a file path.\n"); return 1; }
         }
-        else if (strcmp(argv[i], "--ships") == 0) {
+        else if (strcasecmp(argv[i], "--ships") == 0) {
             if (i + 1 < argc) ships_file = argv[++i];
             else { fprintf(stderr, "Error: --ships requires a file path.\n"); return 1; }
         }
-        else if (strcmp(argv[i], "--random") == 0) {
+        else if (strcasecmp(argv[i], "--random") == 0) {
             random_mode = 1;
         }
     }
 
+    signal(SIGPIPE, SIG_IGN);
 
     // Recommended way using sigaction to avoid old SysV behaviors
     struct sigaction sa_int, sa_chld;
@@ -101,9 +115,19 @@ int main(int argc, char* argv[])
 
 
     // Initialize ships array
-    for(int i=0; i<100; i++) launched_ships[i].pid = 0;
+    for(int i=0; i<100; i++) {
+        launched_ships[i].pid = 0;
+        launched_ships[i].active = 0;;
+    }
 
     fprintf(stderr, "Captain Name: %s\n", name);
+
+    // Collision detection
+    Map *map = map_load(map_file);
+    if (!map) {
+        fprintf(stderr, "Error loading map %s\n", map_file);
+        return 1;
+    }
 
     FILE* file = fopen(ships_file, "r");
     if (file == NULL)
@@ -126,6 +150,14 @@ int main(int argc, char* argv[])
         {
             fprintf(stderr,"Launching Ship ID: %d, Position: (%d, %d)\n", id, x, y);
 
+            // Pipe creation
+            int p_to_s[2];
+            int p_from_s[2];
+            if (pipe(p_to_s) == -1 || pipe(p_from_s) == -1) {
+                perror("pipe failed");
+                continue;
+            }
+
             pid_t pid = fork();
             if (pid < 0) {
                 perror("Fork failed");
@@ -134,6 +166,23 @@ int main(int argc, char* argv[])
 
             if (pid == 0) // Child Process
             {
+                // Routing in and out through pipes
+                dup2(p_to_s[0], STDIN_FILENO);
+                dup2(p_from_s[1], STDOUT_FILENO);
+
+                close(p_to_s[0]);
+                close(p_to_s[1]);
+                close(p_from_s[0]);
+                close(p_from_s[1]);
+
+                // Close inherited pipes from previously launched ships to prevent deadlocks
+                for (int i = 0; i < 100; i++) {
+                    if (launched_ships[i].active) {
+                        close(launched_ships[i].pipe_to_ship[1]);
+                        close(launched_ships[i].pipe_from_ship[0]);
+                    }
+                }
+
                 // Restore default signal in child so it doesn't inherit captain's handler
                 // (Although execl overwrites memory space, it's good practice in pure forks)
                 signal(SIGINT, SIG_DFL);
@@ -147,7 +196,10 @@ int main(int argc, char* argv[])
                 snprintf(y_str, sizeof(y_str), "%d", y);
                 snprintf(speed_str, sizeof(speed_str), "%d", speed);
 
-                execl(ship_exec, "ship", "--pos", x_str, y_str, "--random", "10", speed_str, "--map", map_file, NULL);
+                if (random_mode)
+                    execl("./ship", "ship", "--pos", x_str, y_str, "--random", "10", speed_str, "--map", map_file, NULL);
+                else
+                    execl("./ship", "ship", "--pos", x_str, y_str, "--captain", "--map", map_file, NULL);
 
                 fprintf(stderr, "Failed to execute %s\n", ship_exec);
                 perror("execl failed");
@@ -156,10 +208,19 @@ int main(int argc, char* argv[])
             else
             {
                 int placed = 0;
+
+                close(p_to_s[0]); // Captain won't read from stdin pipe
+                close(p_from_s[1]); // Captain won't write to stdout pipe
+
                 for(int i=0; i<100; i++){
                     if(launched_ships[i].pid == 0){
                         launched_ships[i].id = id;
                         launched_ships[i].pid = pid;
+                        launched_ships[i].x = x;
+                        launched_ships[i].y = y;
+                        launched_ships[i].pipe_to_ship[1] = p_to_s[1];
+                        launched_ships[i].pipe_from_ship[0] = p_from_s[0];
+                        launched_ships[i].active = 1;
                         placed = 1;
                         break;
                     }
@@ -172,6 +233,136 @@ int main(int argc, char* argv[])
     free(line);
     fclose(file);
 
+    if (random_mode) {
+        fprintf(stderr, "[Captain] Waiting for ships to finish...\n");
+        while (ships_count > 0) {
+            pause();
+        }
+    } else {
+        char cmd_line[256];
+        while (ships_count > 0) {
+            printf("Introducir comando [exit | status | (Num, up/down/right/left/exit]: ");
+            fflush(stdout);
+
+            // Read standard input
+            if (fgets(cmd_line, sizeof(cmd_line), stdin) == NULL) {
+                break; // Break on EOF or error
+            }
+
+            // Trim newline character
+            cmd_line[strcspn(cmd_line, "\n")] = 0;
+            if (strlen(cmd_line) == 0) continue;
+
+            if (strcasecmp(cmd_line, "exit") == 0) {
+                printf("Saliendo y terminando todos los barcos.\n");
+                // Issue SIGQUIT to all active ships
+                for (int i = 0; i < 100; i++) {
+                    if (launched_ships[i].active) {
+                        kill(launched_ships[i].pid, SIGQUIT);
+                    }
+                }
+                // Wait for all processes to properly close
+                while (ships_count > 0) {
+                    pause();
+                }
+                break;
+            }
+            else if (strcasecmp(cmd_line, "status") == 0) {
+                for (int i = 0; i < 100; i++) {
+                    if (launched_ships[i].active) {
+                        // Request status by triggering the ship's SIGTSTP handler
+                        kill(launched_ships[i].pid, SIGTSTP);
+
+                        char buf[512];
+                        int n;
+                        int total_read = 0;
+
+                        // Robustly read a single line from the pipe (until '\n')
+                        do {
+                            n = read(launched_ships[i].pipe_from_ship[0], buf + total_read, 1);
+                            if (n > 0) {
+                                total_read += n;
+                                if (buf[total_read - 1] == '\n') break;
+                            }
+                        } while ((n > 0 || (n == -1 && errno == EINTR)) && total_read < sizeof(buf) - 1);
+
+                        // Parse Ship stdout payload and format to match requirement
+                        if (total_read > 0) {
+                            buf[total_read] = '\0';
+                            int pid, x, y, food, gold;
+                            if (sscanf(buf, "PID de barco: %d, Ubicación: (%d, %d), Comida: %d, Oro: %d", &pid, &x, &y, &food, &gold) == 5) {
+                                printf("Barco %d Vivo (ID: %d, PID: %d) En: (%d, %d) Comida: %d Oro: %d\n",
+                                       launched_ships[i].id, launched_ships[i].id, pid, x, y, food, gold);
+                            }
+                        }
+                    }
+                }
+                printf("número de barcos vivos: %d\n", ships_count);
+            }
+            else {
+                // Targeted Ship Command Parsing
+                int target_id;
+                char action[32];
+                if (sscanf(cmd_line, "%d %31s", &target_id, action) == 2) {
+                    int found_idx = -1;
+                    for (int i = 0; i < 100; i++) {
+                        if (launched_ships[i].active && launched_ships[i].id == target_id) {
+                            found_idx = i;
+                            break;
+                        }
+                    }
+
+                    if (found_idx != -1) {
+                        if (strcasecmp(action, "exit") == 0) {
+                            printf("Enviando acción exit al barco %d\n", target_id);
+                            // Push string securely through the pipe to the ship's stdin
+                            dprintf(launched_ships[found_idx].pipe_to_ship[1], "exit\n");
+                        }
+                        else if (strcasecmp(action, "up") == 0 || strcasecmp(action, "down") == 0 ||
+                                 strcasecmp(action, "left") == 0 || strcasecmp(action, "right") == 0) {
+
+                            // Map shift calculations
+                            int dx = 0, dy = 0;
+                            if (strcasecmp(action, "up") == 0) dy = -1;
+                            if (strcasecmp(action, "down") == 0) dy = 1;
+                            if (strcasecmp(action, "left") == 0) dx = -1;
+                            if (strcasecmp(action, "right") == 0) dx = 1;
+
+                            int new_x = launched_ships[found_idx].x + dx;
+                            int new_y = launched_ships[found_idx].y + dy;
+
+                            // Collision assessment with other ships
+                            int collision = 0;
+                            for (int i = 0; i < 100; i++) {
+                                if (launched_ships[i].active && launched_ships[i].id != target_id) {
+                                    if (launched_ships[i].x == new_x && launched_ships[i].y == new_y) {
+                                        collision = 1;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (collision) {
+                                printf("Mover %s para barco %d no es posible debido a colisión.\n", action, target_id);
+                            } else {
+                                // If legal non-rock space, lock coordinates locally to guarantee synch with ship
+                                if (map_can_sail(map, new_x, new_y)) {
+                                    launched_ships[found_idx].x = new_x;
+                                    launched_ships[found_idx].y = new_y;
+                                }
+                                dprintf(launched_ships[found_idx].pipe_to_ship[1], "%s\n", action);
+                            }
+                        } else {
+                            printf("Comando desconocido.\n");
+                        }
+                    } else {
+                        printf("Barco %d no encontrado o no está vivo.\n", target_id);
+                    }
+                    printf("Número de barcos vivos: %d\n", ships_count);
+                }
+            }
+        }
+    }
 
     fprintf(stderr, "[Captain] Waiting for ships to finish...\n");
 
