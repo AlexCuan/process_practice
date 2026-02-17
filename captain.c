@@ -8,6 +8,10 @@
 #include <errno.h>
 #include "map.h"
 
+// Global pipe to Ursula
+FILE *ursula_pipe = NULL;
+pid_t my_pid;
+
 // Structure to manage ship state
 typedef struct
 {
@@ -77,11 +81,21 @@ void handle_sigint(int sig) {
     }
 }
 
+void cleanup_ursula() {
+    if (ursula_pipe) {
+        fprintf(ursula_pipe, "%d, END_CAPT\n", my_pid);
+        fflush(ursula_pipe);
+        fclose(ursula_pipe);
+    }
+}
+
 int main(int argc, char* argv[])
 {
+    my_pid = getpid();
     char* name = "Captain Amina al-Sirafi";
     char* map_file = "map.txt";
     char* ships_file = "ships.txt";
+    char* ursula_fifo = NULL; // Path to Ursula's pipe
     int random_mode = 0;
 
     for (int i = 1; i < argc; i++)
@@ -101,6 +115,8 @@ int main(int argc, char* argv[])
         else if (strcasecmp(argv[i], "--random") == 0) {
             random_mode = 1;
         }
+        else if (strcasecmp(argv[i], "--ursula") == 0 && i + 1 < argc) ursula_fifo = argv[++i]; // Parse Ursula arg
+
     }
 
     signal(SIGPIPE, SIG_IGN);
@@ -126,9 +142,21 @@ int main(int argc, char* argv[])
         launched_ships[i].read_stream = NULL;
     }
 
-    fprintf(stderr, "Captain Name: %s PID: %d\n", name, getpid());
+    fprintf(stderr, "Captain Name: %s PID: %d\n", name, my_pid);
 
-    // Load Map
+    // Connect to Ursula if requested
+    if (ursula_fifo) {
+        ursula_pipe = fopen(ursula_fifo, "w");
+        if (ursula_pipe) {
+            fprintf(ursula_pipe, "%d, INIT_CAPT\n", my_pid);
+            fflush(ursula_pipe);
+            // Register cleanup to send END_CAPT on exit
+            atexit(cleanup_ursula);
+        } else {
+            perror("Failed to open pipe to Ursula");
+        }
+    }
+
     Map *map = map_load(map_file);
     if (!map) {
         fprintf(stderr, "Error loading map %s\n", map_file);
@@ -192,6 +220,9 @@ int main(int argc, char* argv[])
                     }
                 }
 
+                // Close Ursula pipe in child (child will open its own connection)
+                if (ursula_pipe) fclose(ursula_pipe);
+
                 signal(SIGINT, SIG_DFL);
                 signal(SIGCHLD, SIG_DFL);
 
@@ -200,11 +231,19 @@ int main(int argc, char* argv[])
                 snprintf(y_str, sizeof(y_str), "%d", y);
                 snprintf(speed_str, sizeof(speed_str), "%d", speed);
 
-                // Execute ship
-                if (random_mode)
-                    execl("./ship", "ship", "--pos", x_str, y_str, "--random", "10", speed_str, "--map", map_file, NULL);
-                else
-                    execl("./ship", "ship", "--pos", x_str, y_str, "--captain", "--map", map_file, NULL);
+                // Propagate --ursula arg to ship
+                if (random_mode) {
+                    if (ursula_fifo)
+                        execl("./ship", "ship", "--pos", x_str, y_str, "--random", "10", speed_str, "--map", map_file, "--ursula", ursula_fifo, NULL);
+                    else
+                        execl("./ship", "ship", "--pos", x_str, y_str, "--random", "10", speed_str, "--map", map_file, NULL);
+                }
+                else {
+                    if (ursula_fifo)
+                        execl("./ship", "ship", "--pos", x_str, y_str, "--captain", "--map", map_file, "--ursula", ursula_fifo, NULL);
+                    else
+                        execl("./ship", "ship", "--pos", x_str, y_str, "--captain", "--map", map_file, NULL);
+                }
 
                 perror("execl failed");
                 exit(1);
@@ -223,7 +262,6 @@ int main(int argc, char* argv[])
                         launched_ships[i].y = y;
                         launched_ships[i].pipe_to_ship[1] = p_to_s[1];
                         launched_ships[i].pipe_from_ship[0] = p_from_s[0];
-                        // Convert FD to FILE* for getline usage
                         launched_ships[i].read_stream = fdopen(p_from_s[0], "r");
                         launched_ships[i].active = 1;
                         placed = 1;
@@ -255,14 +293,10 @@ int main(int argc, char* argv[])
             // Prompt to stderr
             fprintf(stderr, "Introduce command [exit | status | <id> up/down/right/left]: ");
 
-            // Read command from user using getline (stdin)
-            // Note: getline still reads from stdin (keyboard/pipe input),
-            // but prompts and feedbacks go to stderr.
             if (getline(&cmd_line, &cmd_len, stdin) == -1) {
                 break;
             }
 
-            // Remove newline
             cmd_line[strcspn(cmd_line, "\n")] = 0;
             if (strlen(cmd_line) == 0) continue;
 
@@ -324,7 +358,6 @@ int main(int argc, char* argv[])
                         else if (strcasecmp(action, "up") == 0 || strcasecmp(action, "down") == 0 ||
                                  strcasecmp(action, "left") == 0 || strcasecmp(action, "right") == 0) {
 
-                            // Calculate potential new position
                             int dx = 0, dy = 0;
                             if (strcasecmp(action, "up") == 0) dy = -1;
                             if (strcasecmp(action, "down") == 0) dy = 1;
@@ -361,7 +394,6 @@ int main(int argc, char* argv[])
                                     if (n > 0) {
                                         // Trim newline
                                         resp_line[strcspn(resp_line, "\n")] = 0;
-
                                         if (strcmp(resp_line, "OK") == 0) {
                                             // 3. Update position ONLY if confirmed
                                             launched_ships[found_idx].x = new_x;
@@ -383,8 +415,6 @@ int main(int argc, char* argv[])
                 }
             }
         }
-
-        // Free buffers used by getline
         if (cmd_line) free(cmd_line);
         if (resp_line) free(resp_line);
     }
