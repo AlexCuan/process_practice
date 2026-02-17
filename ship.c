@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -26,12 +27,34 @@ typedef struct {
 Ship *aux_ship = NULL;
 int ship_speed = 1;
 int steps_remaining = -1;
+FILE *ursula_pipe = NULL; // [Step 5] Global pipe
 
-// Forward declaration
-void move_randomly(Ship *s);
-void ship_print(Ship *s);
+void notify_ursula_move(Ship *s) {
+    if (ursula_pipe) {
+        // Format: <PID>, MOVE, <x>, <y>, <food>, <gold>
+        fprintf(ursula_pipe, "%d, MOVE, %d, %d, %d, %d\n", s->pid, s->x, s->y, s->food, s->gold);
+        fflush(ursula_pipe);
+    }
+}
 
-// Check for special events (if ship docks or arrives at an island)
+void notify_ursula_init(Ship *s) {
+    if (ursula_pipe) {
+        // Format: <PID>, INIT, <x>, <y>, <food>, <gold>
+        fprintf(ursula_pipe, "%d, INIT, %d, %d, %d, %d\n", s->pid, s->x, s->y, s->food, s->gold);
+        fflush(ursula_pipe);
+    }
+}
+
+void notify_ursula_terminate(Ship *s) {
+    if (ursula_pipe) {
+        // Format: <PID>, TERMINATE
+        fprintf(ursula_pipe, "%d, TERMINATE\n", s->pid);
+        fflush(ursula_pipe);
+        fclose(ursula_pipe);
+        ursula_pipe = NULL;
+    }
+}
+
 void check_event(Ship *s) {
     char cell_type = map_get_cell_type(s->mapa, s->x, s->y);
     if (cell_type == BAR) {
@@ -45,6 +68,7 @@ void check_event(Ship *s) {
 
 // Signal management
 void sigusr1_handler(int signal){
+    (void)signal;
     if (aux_ship != NULL) {
         aux_ship->gold += 10;
         fprintf(stderr, "Señal USR1 recibida: +10 Oro (Total: %d)\n", aux_ship->gold);
@@ -52,6 +76,7 @@ void sigusr1_handler(int signal){
 }
 
 void sigusr2_handler(int signal){
+    (void)signal;
     if (aux_ship != NULL) {
         if(aux_ship->gold >= 10){
             aux_ship->gold -= 10;
@@ -70,10 +95,15 @@ void sigusr2_handler(int signal){
 }
 
 void sigquit_handler(int signal) {
+    (void)signal;
     if (aux_ship != NULL) {
         int end_gold = aux_ship->gold;
         fprintf(stderr, "Barco %d ha terminado con estado %d (SIGQUIT).\n",
             aux_ship->pid, end_gold);
+
+        // Notify Ursula before dying
+        notify_ursula_terminate(aux_ship);
+
         if (aux_ship->mapa) map_destroy(aux_ship->mapa);
         exit(end_gold);
     }
@@ -81,6 +111,7 @@ void sigquit_handler(int signal) {
 }
 
 void sigstp_handler(int signal) {
+    (void)signal;
     if (aux_ship != NULL) {
         printf("PID de barco: %d, Ubicación: (%d, %d), Comida: %d, Oro: %d\n",
                aux_ship->pid, aux_ship->x, aux_ship->y, aux_ship->food, aux_ship->gold);
@@ -89,26 +120,18 @@ void sigstp_handler(int signal) {
 }
 
 void sigalrm_handler(int signal) {
+    (void)signal;
     if (aux_ship != NULL) {
         if (steps_remaining == 0) {
             fprintf(stderr, "Barco %d ha terminado sus pasos aleatorios.\n", aux_ship->pid);
+            notify_ursula_terminate(aux_ship); // [Step 5]
             exit(aux_ship->gold);
         }
 
         if (aux_ship->food < 5) {
              fprintf(stderr, "Barco %d no tiene suficiente comida para moverse.\n", aux_ship->pid);
-
         } else {
             int dir_idx = rand() % 4;
-            // directions: {{0, 1} (Down), {1, 0} (Right), {0, -1} (Up), {-1, 0} (Left)}
-            // Map coordinates often: x (col), y (row).
-            // Let's ensure standard logical mapping: Up(y-1), Down(y+1), Left(x-1), Right(x+1)
-            // The `directions` array above is:
-            // 0: dx=0, dy=1  -> Down
-            // 1: dx=1, dy=0  -> Right
-            // 2: dx=0, dy=-1 -> Up
-            // 3: dx=-1, dy=0 -> Left
-
             int dx = directions[dir_idx][0];
             int dy = directions[dir_idx][1];
             int new_x = aux_ship->x + dx;
@@ -122,6 +145,9 @@ void sigalrm_handler(int signal) {
 
                 aux_ship->food -= 5;
                 check_event(aux_ship);
+
+                // Notify Ursula of random move
+                notify_ursula_move(aux_ship);
 
                 fprintf(stderr, "Barco %d en (%d, %d) con %d comida y %d oro.\n",
                         aux_ship->pid, aux_ship->x, aux_ship->y, aux_ship->food, aux_ship->gold);
@@ -179,9 +205,10 @@ void shift_position(Ship *s, int shift_x, int shift_y) {
 
         check_event(s);
 
+        // Notify Ursula of captain-commanded move
+        notify_ursula_move(s);
 
-        map_print(s->mapa);
-
+        map_print(s->mapa); // Optional debug
         printf("OK\n");
         fflush(stdout);
         fprintf(stderr, "Barco %d en (%d, %d) con %d comida y %d oro.\n",
@@ -199,45 +226,27 @@ void command_mode(Ship *s) {
     size_t len = 0;
     ssize_t nread;
 
-    alarm(0);   // Disable the alarm
+    alarm(0);
 
     fprintf(stderr, "Barco PID: %d. Modo captain\n", s->pid);
 
-    // Read lines from stdin until EOF or error
     while ((nread = getline(&line, &len, stdin)) != -1) {
+        if (nread > 0 && line[nread - 1] == '\n') line[nread - 1] = '\0';
 
-        // Remove the newline character at the end if it exists
-        if (nread > 0 && line[nread - 1] == '\n') {
-            line[nread - 1] = '\0';
-        }
-
-        if (strcasecmp(line, "up") == 0) {
-            shift_position(s, 0, -1);
-        }
-        else if (strcasecmp(line, "down") == 0) {
-            shift_position(s, 0, 1);
-        }
-        else if (strcasecmp(line, "left") == 0) {
-            shift_position(s, -1, 0);
-        }
-        else if (strcasecmp(line, "right") == 0) {
-            shift_position(s, 1, 0);
-        }
+        if (strcasecmp(line, "up") == 0) shift_position(s, 0, -1);
+        else if (strcasecmp(line, "down") == 0) shift_position(s, 0, 1);
+        else if (strcasecmp(line, "left") == 0) shift_position(s, -1, 0);
+        else if (strcasecmp(line, "right") == 0) shift_position(s, 1, 0);
         else if (strcasecmp(line, "exit") == 0) {
             fprintf(stderr, "Barco %d saliendo con oro %d.\n", s->pid, s->gold);
             free(line);
+            notify_ursula_terminate(s); // [Step 5]
             exit(s->gold);
-        }
-        else {
-            if (strlen(line) > 0) { // Ignore empty lines
-                fprintf(stderr, "Comando desconocido: %s\n", line);
-            }
         }
     }
     free(line);
 }
 
-// Inicialización barco
 void ship_init(Ship *s, Map *mapa, int x, int y, int food) {
     s->mapa = mapa;
     s->x = x;
@@ -248,43 +257,9 @@ void ship_init(Ship *s, Map *mapa, int x, int y, int food) {
     map_set_ship(s->mapa, s->x, s->y);
 }
 
-void ship_print(Ship *s) {
-    fprintf(stderr, "Barco %d en (%d, %d) con %d comida y %d oro.\n", s->pid, s->x, s->y, s->food, s->gold);
-}
-
-void move_randomly(Ship *s) {
-    if (s->food < 5) {
-        fprintf(stderr, "No hay suficiente comida para moverse.\n");
-        return;
-    }
-
-    int dir_idx = rand() % 4;
-    int dx = directions[dir_idx][0];
-    int dy = directions[dir_idx][1];
-    int new_x = s->x + dx;
-    int new_y = s->y + dy;
-
-    if (map_can_sail(s->mapa, new_x, new_y)) {
-        map_remove_ship(s->mapa, s->x, s->y);
-        s->x = new_x;
-        s->y = new_y;
-        map_set_ship(s->mapa, s->x, s->y);
-        s->food -= 5;
-
-        char cell_type = map_get_cell_type(s->mapa, s->x, s->y);
-        if (cell_type == BAR) {
-            s->gold += 10;
-            fprintf(stderr, "Barco %d llegó a una isla (%d, %d), oro aumentado a %d.\n", s->pid, s->x, s->y, s->gold);
-        } else if (cell_type == HOME) {
-            s->food += 20;
-            fprintf(stderr, "Barco %d llegó a un puerto (%d, %d), comida aumentada a %d.\n", s->pid, s->x, s->y, s->food);
-        }
-    }
-}
-
 // Parsing arguments
 static int parse_args(int argc, char *argv[], char **map_file, int *pos_x, int *pos_y,
-                      int *food, int *random_steps, int *random_speed, int *use_captain) {
+                      int *food, int *random_steps, int *random_speed, int *use_captain, char **ursula_pipe) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--map") == 0 && i + 1 < argc) {
             *map_file = argv[++i];
@@ -347,6 +322,10 @@ static int parse_args(int argc, char *argv[], char **map_file, int *pos_x, int *
         } else if (strcmp(argv[i], "--captain") == 0) {
             *use_captain = 1;
         }
+
+        else if (strcmp(argv[i], "--ursula") == 0 && i + 1 < argc) { // [Step 5]
+            *ursula_pipe = argv[++i];
+        }
     }
     return 0;
 }
@@ -354,7 +333,7 @@ static int parse_args(int argc, char *argv[], char **map_file, int *pos_x, int *
 int main(int argc, char *argv[]) {
 
     char *map_file = "map.txt";
-
+    char *ursula_fifo = NULL;
     int pos_x = 1;
     int pos_y = 1;
     int food = 100;
@@ -362,8 +341,17 @@ int main(int argc, char *argv[]) {
     int random_speed = 1;
     int use_captain = 0;
 
-    if (parse_args(argc, argv, &map_file, &pos_x, &pos_y, &food, &random_steps, &random_speed, &use_captain) != 0) {
+    if (parse_args(argc, argv, &map_file, &pos_x, &pos_y, &food, &random_steps, &random_speed, &use_captain, &ursula_fifo) != 0) {
         return 1;
+    }
+
+    // Connect to Ursula
+    if (ursula_fifo) {
+        ursula_pipe = fopen(ursula_fifo, "w");
+        if (!ursula_pipe) {
+            perror("Failed to open Ursula pipe in ship");
+            // We continue running, just without Ursula reporting
+        }
     }
 
     fprintf(stderr, "Mapa: %s, Posición: (%d, %d), Comida: %d\n", map_file, pos_x, pos_y, food);
@@ -398,11 +386,13 @@ int main(int argc, char *argv[]) {
     ship_speed = random_speed;
     steps_remaining = random_steps;
 
+    // Notify Init
+    notify_ursula_init(&ship);
+
     setup_signals();
     srand(time(NULL) ^ getpid());
 
     if (use_captain) {
-        // FIXED: Now we correctly call the function to read commands [cite: 186-187]
         command_mode(&ship);
     } else {
         alarm(ship_speed);
@@ -411,6 +401,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    notify_ursula_terminate(&ship);
     map_destroy(mapa);
     return ship.gold;
 }
