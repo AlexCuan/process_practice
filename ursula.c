@@ -30,7 +30,13 @@ ShipInfo ships[MAX_SHIPS];
 CaptainInfo captains[MAX_CAPTAINS];
 int treasury = 100;
 
-// Helper to find or add entities
+/**
+ * @brief Finds the index of a ship in the ships array based on its PID.
+ * It iterates through the ships array, checking for an active ship with a matching PID. If found, it returns the index;
+ * otherwise, it returns -1 to indicate that the ship was not found.
+ * @param pid The process ID of the ship to find.
+ * @return The index of the ship in the ships array if found, or -1 if not found.
+ */
 int find_ship_index(int pid) {
     for (int i = 0; i < MAX_SHIPS; i++) {
         if (ships[i].active && ships[i].pid == pid) return i;
@@ -38,6 +44,18 @@ int find_ship_index(int pid) {
     return -1;
 }
 
+/**
+ * @brief Adds a new ship to the ships array with the given parameters.
+ * It searches for an inactive slot in the ships array, and if found, it initializes the ship's information (PID,
+ * position, food, gold) and marks it as active. The function returns the index of the newly added ship or -1 if there
+ * is no available slot.
+ * @param pid The process ID of the new ship.
+ * @param x The initial x-coordinate of the ship.
+ * @param y The initial y-coordinate of the ship.
+ * @param food The initial amount of food for the ship.
+ * @param gold The initial amount of gold for the ship.
+ * @return The index of the newly added ship in the ships array, or -1 if no slot is available.
+ */
 int add_ship(int pid, int x, int y, int food, int gold) {
     for (int i = 0; i < MAX_SHIPS; i++) {
         if (!ships[i].active) {
@@ -53,6 +71,13 @@ int add_ship(int pid, int x, int y, int food, int gold) {
     return -1;
 }
 
+/**
+ * @brief Finds the index of a captain in the captains array based on its PID.
+ * It iterates through the captains array, checking for an active captain with a matching PID. If found, it returns the
+ * index; otherwise, it returns -1 to indicate that the captain was not found.
+ * @param pid The process ID of the captain to find.
+ * @return The index of the captain in the captains array if found, or -1 if not found.
+ */
 int find_captain_index(int pid) {
     for (int i = 0; i < MAX_CAPTAINS; i++) {
         if (captains[i].active && captains[i].pid == pid) return i;
@@ -60,6 +85,13 @@ int find_captain_index(int pid) {
     return -1;
 }
 
+/**
+ * @brief Adds a new captain to the captains array with the given PID.
+ * It searches for an inactive slot in the captains array, and if found, it initializes the captain's information (PID)
+ * and marks it as active. The function returns the index of the newly added captain or -1 if there is no available slot.
+ * @param pid The process ID of the new captain.
+ * @return The index of the newly added captain in the captains array, or -1 if no slot is available.
+ */
 int add_captain(int pid) {
     for (int i = 0; i < MAX_CAPTAINS; i++) {
         if (!captains[i].active) {
@@ -71,12 +103,20 @@ int add_captain(int pid) {
     return -1;
 }
 
-// Combat Logic
+/**
+ * @brief Resolves combat between ships located at the same coordinates (x, y).
+ * The function identifies all ships at the specified location, randomly selects a winner among them, and processes the
+ * losers by decrementing their food and gold. The loot from the losers is pooled together, and the winner is rewarded
+ * with gold from the pool. If the pool is insufficient to reward the winner, Ursula subsidizes the difference from her
+ * treasury. If the treasury cannot cover the subsidy, it signals all captains to terminate and exits the program.
+ * @param x The x-coordinate of the combat location.
+ * @param y The y-coordinate of the combat location.
+ */
 void resolve_combat(int x, int y) {
     int combatants[MAX_SHIPS];
     int count = 0;
 
-    // 1. Identify ships at this location
+    // Identify ships at this location
     for (int i = 0; i < MAX_SHIPS; i++) {
         if (ships[i].active && ships[i].x == x && ships[i].y == y) {
             combatants[count++] = i;
@@ -87,26 +127,26 @@ void resolve_combat(int x, int y) {
 
     fprintf(stdout, "[Ursula] Combat at (%d, %d) between %d ships!\n", x, y, count);
 
-    // 2. Pick a winner
+    // Pick a winner
     int winner_idx_in_combatants = rand() % count;
     int winner_ship_idx = combatants[winner_idx_in_combatants];
 
     int loot_pool = 0;
 
-    // 3. Process Losers
+    // Process Losers
     for (int i = 0; i < count; i++) {
         if (i == winner_idx_in_combatants) continue;
 
         int loser_idx = combatants[i];
 
-        // Decrement Food
+        // Decrement Food (Ursula's internal state)
         if (ships[loser_idx].food >= 10) {
             ships[loser_idx].food -= 10;
         } else {
             ships[loser_idx].food = 0;
         }
 
-        // Decrement Gold (Transfer to pool)
+        // Decrement Gold (Transfer to pool - Ursula's internal state)
         if (ships[loser_idx].gold >= 10) {
             ships[loser_idx].gold -= 10;
             loot_pool += 10;
@@ -116,12 +156,16 @@ void resolve_combat(int x, int y) {
             ships[loser_idx].gold = 0;
         }
 
+        kill(ships[loser_idx].pid, SIGUSR2);
+
         fprintf(stdout, "[Ursula] Ship %d lost combat. Food: %d, Gold: %d.\n",
                 ships[loser_idx].pid, ships[loser_idx].food, ships[loser_idx].gold);
     }
 
-    // 4. Reward Winner
+    // Reward Winner
     int reward_needed = 10;
+
+    kill(ships[winner_ship_idx].pid, SIGUSR1);
 
     // If pool has enough, winner takes 10, rest goes to Ursula
     if (loot_pool >= reward_needed) {

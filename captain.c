@@ -128,7 +128,7 @@ void cleanup_ursula()
 {
     if (ursula_pipe)
     {
-        fprintf(ursula_pipe, "%d, END_CAPT\n", my_pid);
+        fprintf(ursula_pipe, "%d,END_CAPT\n", my_pid);
         fflush(ursula_pipe);
         fclose(ursula_pipe);
     }
@@ -199,10 +199,8 @@ int main(int argc, char* argv[])
 
     sa_chld.sa_handler = handle_sigchld;
     sigemptyset(&sa_chld.sa_mask);
-    // If a ship dies while we are waiting for input
-    // this flag tells the OS to automatically restart the input function
-    // instead of failing.
-    sa_chld.sa_flags = SA_RESTART;
+    sa_chld.sa_flags = 0;
+    sigaction(SIGCHLD, &sa_chld, NULL);
     sigaction(SIGCHLD, &sa_chld, NULL);
 
 
@@ -223,7 +221,7 @@ int main(int argc, char* argv[])
         if (ursula_pipe)
         {
             // fprintf writes the message to the pipe directly
-            fprintf(ursula_pipe, "%d, INIT_CAPT\n", my_pid);
+            fprintf(ursula_pipe, "%d,INIT_CAPT\n", my_pid);
             // fflush: This forces the C library to take whatever is currently in the buffer and immediately write it
             // to the file descriptor (the pipe).
             fflush(ursula_pipe);
@@ -403,7 +401,10 @@ int main(int argc, char* argv[])
 
             if (getline(&cmd_line, &cmd_len, stdin) == -1)
             {
-                break;
+                if (errno == EINTR) {
+                    clearerr(stdin);
+                    continue; // A ship died, loop will re-evaluate ships_count > 0
+                }
             }
 
             cmd_line[strcspn(cmd_line, "\n")] = 0;

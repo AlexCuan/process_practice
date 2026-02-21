@@ -42,7 +42,7 @@ void notify_ursula_move(Ship* s)
     if (ursula_pipe)
     {
         // Format: <PID>, MOVE, <x>, <y>, <food>, <gold>
-        fprintf(ursula_pipe, "%d, MOVE, %d, %d, %d, %d\n", s->pid, s->x, s->y, s->food, s->gold);
+        fprintf(ursula_pipe, "%d,MOVE,%d,%d,%d,%d\n", s->pid, s->x, s->y, s->food, s->gold);
         fflush(ursula_pipe);
     }
 }
@@ -55,7 +55,7 @@ void notify_ursula_init(Ship* s)
     if (ursula_pipe)
     {
         // Format: <PID>, INIT, <x>, <y>, <food>, <gold>
-        fprintf(ursula_pipe, "%d, INIT, %d, %d, %d, %d\n", s->pid, s->x, s->y, s->food, s->gold);
+        fprintf(ursula_pipe, "%d,INIT,%d,%d,%d,%d\n", s->pid, s->x, s->y, s->food, s->gold);
         fflush(ursula_pipe);
     }
 }
@@ -68,7 +68,7 @@ void notify_ursula_terminate(Ship* s)
     if (ursula_pipe)
     {
         // Format: <PID>, TERMINATE
-        fprintf(ursula_pipe, "%d, TERMINATE\n", s->pid);
+        fprintf(ursula_pipe, "%d,TERMINATE\n", s->pid);
         fflush(ursula_pipe);
         fclose(ursula_pipe);
         ursula_pipe = NULL;
@@ -108,7 +108,8 @@ void sigusr1_handler(int signal)
     if (aux_ship != NULL)
     {
         aux_ship->gold += 10;
-        fprintf(stderr, "Señal USR1 recibida: +10 Oro (Total: %d)\n", aux_ship->gold);
+        fprintf(stderr, "Barco %d: Señal USR1 recibida (+10 Oro). Oro Total: %d\n",
+                aux_ship->pid, aux_ship->gold);
     }
 }
 
@@ -140,8 +141,8 @@ void sigusr2_handler(int signal)
         {
             aux_ship->food = 0;
         }
-        fprintf(stderr, "Señal USR2 recibida: Reduccion de recursos! Comida: %d, Oro: %d\n",
-                aux_ship->food, aux_ship->gold);
+        fprintf(stderr, "Barco %d: Señal USR2 recibida (Ataque!). Comida restante: %d, Oro restante: %d\n",
+                       aux_ship->pid, aux_ship->food, aux_ship->gold);
     }
 }
 
