@@ -1,3 +1,8 @@
+/**
+ * @file map.h
+ * @brief Defines the map structure and navigation logic.
+ */
+
 #ifndef MAP_H
 #define MAP_H
 
