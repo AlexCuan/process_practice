@@ -152,7 +152,7 @@ int main(int argc, char* argv[])
             else
             {
                 fprintf(stderr, "Error: --name requires a value.\n");
-                return 1;
+                return EXIT_FAILURE;
             }
         }
         else if (strcasecmp(argv[i], "--map") == 0)
@@ -161,7 +161,7 @@ int main(int argc, char* argv[])
             else
             {
                 fprintf(stderr, "Error: --map requires a file path.\n");
-                return 1;
+                return EXIT_FAILURE;
             }
         }
         else if (strcasecmp(argv[i], "--ships") == 0)
@@ -170,7 +170,7 @@ int main(int argc, char* argv[])
             else
             {
                 fprintf(stderr, "Error: --ships requires a file path.\n");
-                return 1;
+                return EXIT_FAILURE;
             }
         }
         else if (strcasecmp(argv[i], "--random") == 0)
@@ -238,7 +238,7 @@ int main(int argc, char* argv[])
     if (!map)
     {
         fprintf(stderr, "Error loading map %s\n", map_file);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     // Load Ships info
@@ -246,7 +246,7 @@ int main(int argc, char* argv[])
     if (file == NULL)
     {
         fprintf(stderr, "Error opening ships file: %s\n", ships_file);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     int id, x, y, speed;
@@ -343,7 +343,7 @@ int main(int argc, char* argv[])
                 }
 
                 perror("execl failed");
-                exit(1);
+                exit(EXIT_FAILURE);
             }
             else // Parent Process
             {
@@ -574,5 +574,5 @@ int main(int argc, char* argv[])
 
     fprintf(stderr, "[Captain] All ships have returned. Terminating execution.\n");
     map_destroy(map);
-    return 0;
+    return EXIT_SUCCESS;
 }

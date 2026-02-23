@@ -167,7 +167,7 @@ void sigquit_handler(int signal)
         if (aux_ship->mapa) map_destroy(aux_ship->mapa);
         exit(end_gold);
     }
-    exit(0);
+    exit(EXIT_SUCCESS);
 }
 
 /**
@@ -422,7 +422,7 @@ static int parse_args(int argc, char* argv[], char** map_file, int* pos_x, int* 
             if (end == argv[i] || *end != '\0' || errno == ERANGE || v < INT_MIN || v > INT_MAX)
             {
                 fprintf(stderr, "Valor inválido para --pos X: %s\n", argv[i]);
-                return 1;
+                return EXIT_FAILURE;
             }
             *pos_x = (int)v;
 
@@ -432,7 +432,7 @@ static int parse_args(int argc, char* argv[], char** map_file, int* pos_x, int* 
             if (end == argv[i] || *end != '\0' || errno == ERANGE || v < INT_MIN || v > INT_MAX)
             {
                 fprintf(stderr, "Valor inválido para --pos Y: %s\n", argv[i]);
-                return 1;
+                return EXIT_FAILURE;;
             }
             *pos_y = (int)v;
         }
@@ -446,7 +446,7 @@ static int parse_args(int argc, char* argv[], char** map_file, int* pos_x, int* 
             if (end == argv[i] || *end != '\0' || errno == ERANGE || v < INT_MIN || v > INT_MAX)
             {
                 fprintf(stderr, "Valor inválido para --food: %s\n", argv[i]);
-                return 1;
+                return EXIT_FAILURE;;
             }
             *food = (int)v;
         }
@@ -461,7 +461,7 @@ static int parse_args(int argc, char* argv[], char** map_file, int* pos_x, int* 
             if (endptr == argv[i] || *endptr != '\0' || errno == ERANGE || val < INT_MIN || val > INT_MAX)
             {
                 fprintf(stderr, "Valor inválido para --random pasos: %s\n", argv[i]);
-                return 1;
+                return EXIT_FAILURE;;
             }
             *random_steps = (int)val;
 
@@ -471,7 +471,7 @@ static int parse_args(int argc, char* argv[], char** map_file, int* pos_x, int* 
             if (endptr == argv[i] || *endptr != '\0' || errno == ERANGE || val < INT_MIN || val > INT_MAX)
             {
                 fprintf(stderr, "Valor inválido para --random velocidad: %s\n", argv[i]);
-                return 1;
+                return EXIT_FAILURE;;
             }
             *random_speed = (int)val;
         }
@@ -503,7 +503,7 @@ int main(int argc, char* argv[])
     if (parse_args(argc, argv, &map_file, &pos_x, &pos_y, &food, &random_steps, &random_speed, &use_captain,
                    &ursula_fifo) != 0)
     {
-        return 1;
+        return EXIT_FAILURE;
     }
 
     // Connect to Ursula
@@ -522,19 +522,19 @@ int main(int argc, char* argv[])
     if (random_steps == -1 && !use_captain)
     {
         fprintf(stderr, "Error: Debe especificar --random N s1 o --captain\n");
-        return 1;
+        return EXIT_FAILURE;;
     }
     if (use_captain && random_steps != -1)
     {
         fprintf(stderr, "Error: No puede usar --captain y --random a la vez.\n");
-        return 1;
+        return EXIT_FAILURE;;
     }
 
     Map* mapa = map_load(map_file);
     if (!mapa)
     {
         fprintf(stderr, "Error cargando el mapa: %s\n", map_file);
-        return 1;
+        return EXIT_FAILURE;;
     }
 
     Ship ship;
@@ -546,7 +546,7 @@ int main(int argc, char* argv[])
     {
         fprintf(stderr, "Posición inicial (%d, %d) inválida.\n", pos_x, pos_y);
         map_destroy(mapa);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     fprintf(stderr, "Barco PID: %d\n", ship.pid);

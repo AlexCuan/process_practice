@@ -195,7 +195,7 @@ void resolve_combat(int x, int y) {
                     kill(captains[k].pid, SIGINT);
                 }
             }
-            exit(0);
+            exit(EXIT_SUCCESS);
         }
     }
 }
@@ -203,7 +203,7 @@ void resolve_combat(int x, int y) {
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <fifo_name>\n", argv[0]);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     char *fifo_path = argv[1];
@@ -212,7 +212,7 @@ int main(int argc, char *argv[]) {
     if (mkfifo(fifo_path, 0666) == -1) {
         if (errno != EEXIST) {
             perror("mkfifo");
-            return 1;
+            return EXIT_FAILURE;
         }
     }
 
@@ -222,7 +222,7 @@ int main(int argc, char *argv[]) {
     FILE *fp = fopen(fifo_path, "r+");
     if (!fp) {
         perror("fopen fifo");
-        return 1;
+        return EXIT_FAILURE;
     }
 
     // Initial random seed
@@ -336,5 +336,5 @@ int main(int argc, char *argv[]) {
     if (line) free(line);
     fclose(fp);
     unlink(fifo_path);
-    return 0;
+    return EXIT_SUCCESS;
 }
