@@ -53,10 +53,6 @@ Although the Captain spawns ships internally using `exec`, you can launch a ship
 ./ship --map map.txt --pos 1 3 --food 100 --random 10 1 --ursula pipe_ursula
 ```
 
-**Captain Mode (waits for commands via stdin):**
-```bash
-./ship --map map.txt --pos 1 3 --food 100 --captain --ursula pipe_ursula
-```
 
 ## Interaction in Manual Mode
 
