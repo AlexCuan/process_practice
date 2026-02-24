@@ -1,10 +1,10 @@
 /*
  * @file captain.c
- * @brief Controls the fleet logic and manages ship processes
+ * @brief Controla la lógica de la flota y administra los procesos de los barcos
  *
- * This program acts as the parent process. It spawns ships via fork/exec,
- * communicates commands via pipes, and synchronizes state with the
- * central server (Ursula).
+ * Este programa actúa como el proceso padre. Lanza barcos mediante fork/exec,
+ * comunica comandos a través de tuberías (pipes) y sincroniza el estado con el
+ * servidor central (Ursula).
  *
 */
 
@@ -24,21 +24,21 @@ FILE* ursula_pipe = NULL;
 pid_t my_pid;
 
 /**
- * @brief Structure to track launched ships and their communication channels
+ * @brief Estructura para rastrear barcos lanzados y sus canales de comunicación
  */
 typedef struct
 {
     int id;
     pid_t pid;
-    // Captain writes to [1], Ship reads from [0] (stdin)
+    // Capitán escribe en [1], Barco lee de [0] (stdin)
     int pipe_to_ship[2];
-    // Ship writes to [1] (stdout), Captain reads from [0]
+    // Barco escribe en [1] (stdout), Capitán lee de [0]
     int pipe_from_ship[2];
-    // FILE* wrapper for pipe_from_ship[0] for getline usage
+    // Wrapper FILE* para pipe_from_ship[0] para el uso de getline
     FILE* read_stream;
-    // Track position for collision detection
+    // Rastrear posición para detección de colisiones
     int x, y;
-    // 1 if alive, 0 if finished
+    // 1 si está vivo, 0 si terminó
     int active;
 } ShipRecord;
 
@@ -46,11 +46,11 @@ ShipRecord launched_ships[100];
 int ships_count = 0;
 
 /**
- * @brief Signal handler for SIGCHLD to detect when ships finish
- * * This handler uses waitpid with WNOHANG to reap child processes without blocking.
- * * It identifies which ship finished by matching the PID, updates the ship record,
- *   and prints the result (gold collected or if it was sunk).
- * @param sig Signal number (unused)
+ * @brief Manejador de la señal SIGCHLD para detectar cuando los barcos terminan
+ * * Este manejador utiliza waitpid con WNOHANG para recolectar procesos hijos sin bloquear.
+ * * Identifica qué barco terminó buscando el PID coincidente, actualiza el registro del barco,
+ *   y muestra el resultado (oro recolectado o si fue hundido).
+ * @param sig Número de la señal (no usado)
  */
 void handle_sigchld(int sig)
 {
@@ -87,12 +87,12 @@ void handle_sigchld(int sig)
             if (WIFEXITED(status))
             {
                 int gold_collected = WEXITSTATUS(status);
-                fprintf(stderr, "[Captain] Ship %d (PID %d) has finished. Treasures collected: %d\n",
+                fprintf(stderr, "[Capitán] Barco %d (PID %d) ha terminado. Tesoros recolectados: %d\n",
                         finished_id, pid, gold_collected);
             }
             else if (WIFSIGNALED(status))
             {
-                fprintf(stderr, "[Captain] Ship %d (PID %d) was sunk by signal %d.\n",
+                fprintf(stderr, "[Capitán] Barco %d (PID %d) fue hundido por la señal %d.\n",
                         finished_id, pid, WTERMSIG(status));
             }
         }
@@ -100,15 +100,15 @@ void handle_sigchld(int sig)
 }
 
 /**
- * @brief Signal handler for SIGINT to trigger orderly shutdown of all ships
- * * When the captain receives SIGINT (e.g., Ctrl+C), it sends a SIGQUIT signal to all active ships,
- *   instructing them to perform an orderly shutdown and report their final gold collected.
- * @param sig Signal number (unused)
+ * @brief Manejador de la señal SIGINT para iniciar el cierre ordenado de todos los barcos
+ * * Cuando el capitán recibe SIGINT (ej. Ctrl+C), envía una señal SIGQUIT a todos los barcos activos,
+ *   ordenándoles realizar un cierre ordenado y reportar su oro recolectado final.
+ * @param sig Número de la señal (no usado)
  */
 void handle_sigint(int sig)
 {
     (void)sig;
-    fprintf(stderr, "\n[Captain] SIGINT signal received! Ordering withdrawal (SIGQUIT) to all ships...\n");
+    fprintf(stderr, "\n[Capitán] ¡Señal SIGINT recibida! Ordenando retirada (SIGQUIT) a todos los barcos...\n");
 
     for (int i = 0; i < 100; i++)
     {
@@ -120,9 +120,9 @@ void handle_sigint(int sig)
 }
 
 /**
- * @brief Cleanup function to notify Ursula of captain termination
- * * This function is registered with atexit to ensure that when the captain process exits,
- *   it sends a final message to Ursula indicating that the captain has finished.
+ * @brief Función de limpieza para notificar a Ursula de la terminación del capitán
+ * * Esta función se registra con atexit para asegurar que cuando el proceso del capitán termine,
+ *   envíe un mensaje final a Ursula indicando que el capitán ha finalizado.
  */
 void cleanup_ursula()
 {
@@ -137,13 +137,13 @@ void cleanup_ursula()
 int main(int argc, char* argv[])
 {
     my_pid = getpid();
-    char* name = "Captain Amina al-Sirafi";
+    char* name = "Capitana Amina al-Sirafi";
     char* map_file = "map.txt";
     char* ships_file = "ships.txt";
-    char* ursula_fifo = NULL; // Path to Ursula's pipe
+    char* ship_path = "./ship";
+    char* ursula_fifo = NULL; // Ruta al pipe de Ursula
     int random_mode = 0;
 
-    // TODO: Functionality of strcasecmp
     for (int i = 1; i < argc; i++)
     {
         if (strcasecmp(argv[i], "--name") == 0)
@@ -151,7 +151,7 @@ int main(int argc, char* argv[])
             if (i + 1 < argc) name = argv[++i];
             else
             {
-                fprintf(stderr, "Error: --name requires a value.\n");
+                fprintf(stderr, "Error: --name requiere un valor.\n");
                 return EXIT_FAILURE;
             }
         }
@@ -160,7 +160,7 @@ int main(int argc, char* argv[])
             if (i + 1 < argc) map_file = argv[++i];
             else
             {
-                fprintf(stderr, "Error: --map requires a file path.\n");
+                fprintf(stderr, "Error: --map requiere una ruta de archivo.\n");
                 return EXIT_FAILURE;
             }
         }
@@ -169,7 +169,16 @@ int main(int argc, char* argv[])
             if (i + 1 < argc) ships_file = argv[++i];
             else
             {
-                fprintf(stderr, "Error: --ships requires a file path.\n");
+                fprintf(stderr, "Error: --ships requiere una ruta de archivo.\n");
+                return EXIT_FAILURE;
+            }
+        }
+        else if (strcmp(argv[i], "--ship-path") == 0)
+        {
+            if (i + 1 < argc) ship_path = argv[++i];
+            else
+            {
+                fprintf(stderr, "Error: --ship-path requiere una ruta.\n");
                 return EXIT_FAILURE;
             }
         }
@@ -177,34 +186,31 @@ int main(int argc, char* argv[])
         {
             random_mode = 1;
         }
-        else if (strcasecmp(argv[i], "--ursula") == 0 && i + 1 < argc) ursula_fifo = argv[++i]; // Parse Ursula arg
+        else if (strcasecmp(argv[i], "--ursula") == 0 && i + 1 < argc) ursula_fifo = argv[++i]; // Parsear arg Ursula
+
     }
 
-    // Handle broken pipes. When a ship process dies, writing to its pipe will cause SIGPIPE.
-    // We want to ignore it and handle it gracefully.
-    signal(SIGPIPE, SIG_IGN);
 
-    // Setup signal handlers
-    struct sigaction sa_int, sa_chld;
+    // Manejar pipes rotos. Cuando el proceso de un barco muere, escribir en su pipe causará SIGPIPE.
+    // Queremos ignorarlo y manejarlo con gracia.
 
-
-    sa_int.sa_handler = handle_sigint;
-    // sigemptyset means "don't block any additional signals while handle_sigint is running"
-    sigemptyset(&sa_int.sa_mask);
-    // Setting it to 0 means "use default behavior." Specifically, it means we are not using flags like SA_RESTART.
-    // If a system call (like read or pause) is interrupted by this signal, it will fail and return an error (EINTR)
-    // rather than automatically restarting.
-    sa_int.sa_flags = 0;
-    sigaction(SIGINT, &sa_int, NULL);
-
-    sa_chld.sa_handler = handle_sigchld;
-    sigemptyset(&sa_chld.sa_mask);
-    sa_chld.sa_flags = 0;
-    sigaction(SIGCHLD, &sa_chld, NULL);
-    sigaction(SIGCHLD, &sa_chld, NULL);
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+        perror("Error configurando SIGPIPE");
+        return EXIT_FAILURE;
+    }
 
 
-    // Initialize ships array
+    if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+        perror("Error configurando SIGINT");
+        return EXIT_FAILURE;
+    }
+    if (signal(SIGCHLD, handle_sigchld) == SIG_ERR) {
+        perror("Error configurando SIGCHLD");
+        return EXIT_FAILURE;
+    }
+
+
+    // Inicializar array de barcos
     for (int i = 0; i < 100; i++)
     {
         launched_ships[i].pid = 0;
@@ -212,94 +218,94 @@ int main(int argc, char* argv[])
         launched_ships[i].read_stream = NULL;
     }
 
-    fprintf(stderr, "Captain Name: %s PID: %d\n", name, my_pid);
+    fprintf(stderr, "Nombre del Capitán: %s PID: %d\n", name, my_pid);
 
-    // Connect to Ursula if requested
+    // Conectar a Ursula si se solicitó
     if (ursula_fifo)
     {
         ursula_pipe = fopen(ursula_fifo, "w");
         if (ursula_pipe)
         {
-            // fprintf writes the message to the pipe directly
+            // fprintf escribe el mensaje en el pipe directamente
             fprintf(ursula_pipe, "%d,INIT_CAPT\n", my_pid);
-            // fflush: This forces the C library to take whatever is currently in the buffer and immediately write it
-            // to the file descriptor (the pipe).
+            // fflush: Fuerza a tomar lo que está actualmente en el buffer y escribirlo inmediatamente
+            // en el pipe.
             fflush(ursula_pipe);
-            // Register cleanup to send END_CAPT on exit
+            // Registrar la limpieza para enviar FIN_CAPT a la salida
             atexit(cleanup_ursula);
         }
         else
         {
-            perror("Failed to open pipe to Ursula");
+            perror("Fallo al abrir la tubería hacia Ursula");
         }
     }
 
     Map* map = map_load(map_file);
     if (!map)
     {
-        fprintf(stderr, "Error loading map %s\n", map_file);
+        fprintf(stderr, "Error cargando el mapa %s\n", map_file);
         return EXIT_FAILURE;
     }
 
-    // Load Ships info
+    // Cargar información de Barcos
     FILE* file = fopen(ships_file, "r");
     if (file == NULL)
     {
-        fprintf(stderr, "Error opening ships file: %s\n", ships_file);
+        fprintf(stderr, "Error abriendo el archivo de barcos: %s\n", ships_file);
         return EXIT_FAILURE;
     }
 
     int id, x, y, speed;
     char* line = NULL;
     size_t len = 0;
-    // We use ssize_t because getline returns can be -1 on error or EOF.
-    // Using ssize_t allows us to properly check for these conditions.
+    // Usamos ssize_t porque los retornos de getline pueden ser -1 en caso de error o EOF.
+    // Usar ssize_t nos permite comprobar correctamente estas condiciones.
     ssize_t read_len;
 
-    // Parsing lines from ships file
-    // Uses getline for reading and sscanf for parsing
+
+    // getline para leer y sscanf para parsear
     while ((read_len = getline(&line, &len, file)) != -1)
     {
         if (read_len <= 1) continue;
 
         if (sscanf(line, "%d (%d,%d) %d", &id, &x, &y, &speed) == 4)
         {
-            fprintf(stderr, "Launching Ship ID: %d, Position: (%d, %d)\n", id, x, y);
+            fprintf(stderr, "Lanzando Barco ID: %d, Posición: (%d, %d)\n", id, x, y);
 
-            // Create pipes
-            int p_to_s[2]; // Write to ship
-            int p_from_s[2]; // Read from ship
+            // Crear pipes
+            int p_to_s[2]; // Escribir al barco
+            int p_from_s[2]; // Leer del barco
             if (pipe(p_to_s) == -1 || pipe(p_from_s) == -1)
             {
-                perror("pipe failed");
+                perror("fallo en pipe");
                 continue;
             }
 
             pid_t pid = fork();
             if (pid < 0)
             {
-                perror("Fork failed");
+                perror("fallo en fork");
                 continue;
             }
 
-            if (pid == 0) // Child Process
+            if (pid == 0) // Proceso Hijo
             {
-                // Redirect STDIN/STDOUT to pipes
-                dup2(p_to_s[0], STDIN_FILENO); // Read from parent
-                dup2(p_from_s[1], STDOUT_FILENO); // Write to parent
+                // Redirigir STDIN/STDOUT a los pipes
+                dup2(p_to_s[0], STDIN_FILENO); // Leer del padre
+                dup2(p_from_s[1], STDOUT_FILENO); // Escribir al padre
 
-                // Close unused pipe ends
+                // Cerramos extremos no usados de los pipes
                 close(p_to_s[0]);
                 close(p_to_s[1]);
                 close(p_from_s[0]);
                 close(p_from_s[1]);
 
-                // Close pipes belonging to PREVIOUSLY launched ships.
-                // When fork() runs, this child inherits ALL open file descriptors
-                // from the parent (Captain), including pipes connected to Ship 1, Ship 2, etc.
-                // We must close these pipes here. If we don't,
-                // the previous ships will never receive EOF (termination) signals
-                // because this new child is accidentally keeping their pipes open.
+                // Cerrar pipes que pertenecen a barcos PREVIAMENTE lanzados.
+                // Cuando fork() se ejecuta, este hijo hereda TODOS los descriptores de archivo abiertos
+                // del padre, incluyendo pipes conectados al Barco 1, Barco 2, etc.
+                // Debemos cerrar estos pipes aquí. Si no lo hacemos,
+                // los barcos anteriores nunca recibirán señales de EOF (terminación)
+                // porque este nuevo hijo está manteniendo accidentalmente sus pipes abiertos.
                 for (int i = 0; i < 100; i++)
                 {
                     if (launched_ships[i].active)
@@ -309,47 +315,43 @@ int main(int argc, char* argv[])
                     }
                 }
 
-                // Close Ursula pipe in child (child will open its own connection)
+                // Cerrar pipe de Ursula en el hijo (el hijo abrirá su propia conexión)
                 if (ursula_pipe) fclose(ursula_pipe);
 
-                // Default signals
+                // Señales por defecto
                 signal(SIGINT, SIG_DFL);
                 signal(SIGCHLD, SIG_DFL);
 
                 char x_str[12], y_str[12], speed_str[12];
-                // Convert integers to strings for exec arguments
+                // Convertir enteros a strings para los argumentos de exec
                 snprintf(x_str, sizeof(x_str), "%d", x);
                 snprintf(y_str, sizeof(y_str), "%d", y);
                 snprintf(speed_str, sizeof(speed_str), "%d", speed);
 
-                // Propagate --ursula arg to ship
+                // Propagar el arg --ursula al barco
                 if (random_mode)
                 {
-                    // TODO: change hardcoded localtion of ship
                     if (ursula_fifo)
-                        execl("./ship", "ship", "--pos", x_str, y_str, "--random", "10", speed_str, "--map", map_file,
-                              "--ursula", ursula_fifo, NULL);
+                        execl(ship_path, "ship", "--pos", x_str, y_str, "--random", "10", speed_str, "--map", map_file, "--ursula", ursula_fifo, NULL);
                     else
-                        execl("./ship", "ship", "--pos", x_str, y_str, "--random", "10", speed_str, "--map", map_file,
-                              NULL);
+                        execl(ship_path, "ship", "--pos", x_str, y_str, "--random", "10", speed_str, "--map", map_file, NULL);
                 }
                 else
                 {
                     if (ursula_fifo)
-                        execl("./ship", "ship", "--pos", x_str, y_str, "--captain", "--map", map_file, "--ursula",
-                              ursula_fifo, NULL);
+                        execl(ship_path, "ship", "--pos", x_str, y_str, "--captain", "--map", map_file, "--ursula", ursula_fifo, NULL);
                     else
-                        execl("./ship", "ship", "--pos", x_str, y_str, "--captain", "--map", map_file, NULL);
+                        execl(ship_path, "ship", "--pos", x_str, y_str, "--captain", "--map", map_file, NULL);
                 }
 
-                perror("execl failed");
+                perror("fallo en execl");
                 exit(EXIT_FAILURE);
             }
-            else // Parent Process
+            else // Proceso Padre
             {
-                // Close read end of write pipe
+                // Cerrar extremo de lectura del pipe de escritura
                 close(p_to_s[0]);
-                // Close write end of read pipe
+                // Cerrar extremo de escritura del pipe de lectura
                 close(p_from_s[1]);
 
                 int placed = 0;
@@ -377,10 +379,9 @@ int main(int argc, char* argv[])
     free(line);
     fclose(file);
 
-    // Main Control Loop
     if (random_mode)
     {
-        fprintf(stderr, "[Captain] Waiting for ships to finish (Random Mode)...\n");
+        fprintf(stderr, "[Capitán] Esperando a que los barcos terminen (Modo Aleatorio)...\n");
         while (ships_count > 0)
         {
             pause();
@@ -388,7 +389,7 @@ int main(int argc, char* argv[])
     }
     else
     {
-        // Buffers for getline usage
+        // Buffers para el uso de getline
         char* cmd_line = NULL;
         size_t cmd_len = 0;
         char* resp_line = NULL;
@@ -403,7 +404,7 @@ int main(int argc, char* argv[])
             {
                 if (errno == EINTR) {
                     clearerr(stdin);
-                    continue; // A ship died, loop will re-evaluate ships_count > 0
+                    continue; // Un barco murió, el bucle reevaluará ships_count > 0
                 }
             }
 
@@ -412,7 +413,7 @@ int main(int argc, char* argv[])
 
             if (strcasecmp(cmd_line, "exit") == 0)
             {
-                fprintf(stderr, "Exiting and terminating all ships.\n");
+                fprintf(stderr, "Saliendo y terminando todos los barcos.\n");
                 for (int i = 0; i < 100; i++)
                 {
                     if (launched_ships[i].active)
@@ -443,21 +444,21 @@ int main(int argc, char* argv[])
                             if (sscanf(resp_line, "PID de barco: %d, Ubicación: (%d, %d), Comida: %d, Oro: %d",
                                        &s_pid, &s_x, &s_y, &s_food, &s_gold) == 5)
                             {
-                                fprintf(stderr, "Ship %d alive (PID: %d) Location: (%d, %d) Food: %d Gold: %d\n",
+                                fprintf(stderr, "Barco %d vivo (PID: %d) Ubicación: (%d, %d) Comida: %d Oro: %d\n",
                                         launched_ships[i].id, s_pid, s_x, s_y, s_food, s_gold);
                             }
                             else
                             {
-                                fprintf(stderr, "Raw Status from Ship %d: %s", launched_ships[i].id, resp_line);
+                                fprintf(stderr, "Estado del Barco %d: %s", launched_ships[i].id, resp_line);
                             }
                         }
                     }
                 }
-                fprintf(stderr, "Number of ships alive: %d\n", ships_count);
+                fprintf(stderr, "Número de barcos vivos: %d\n", ships_count);
             }
             else
             {
-                // Parsing User Command
+                // Parseando el Comando del Usuario
                 int target_id;
                 char action[32];
                 if (sscanf(cmd_line, "%d %31s", &target_id, action) == 2)
@@ -476,10 +477,10 @@ int main(int argc, char* argv[])
                     {
                         if (strcasecmp(action, "exit") == 0)
                         {
-                            fprintf(stderr, "Sending exit action to ship %d...\n", target_id);
-                            // Writes directly in the descriptor, that's the d from dprintf
-                            // This is intended for unamed pipes, can't be used in Ursula since Ursula uses FIFOs
-                            // (named pipes)
+                            fprintf(stderr, "Enviando acción de salir al barco %d...\n", target_id);
+                            // La D de dprintf significa que escribe directamente en el descriptor.
+                            // Esto está destinado a pipes anónimos, no se puede usar en Ursula ya que Ursula usa FIFOs
+                            // (pipes con nombre)
                             dprintf(launched_ships[found_idx].pipe_to_ship[1], "exit\n");
                         }
                         else if (strcasecmp(action, "up") == 0 || strcasecmp(action, "down") == 0 ||
@@ -494,7 +495,7 @@ int main(int argc, char* argv[])
                             int new_x = launched_ships[found_idx].x + dx;
                             int new_y = launched_ships[found_idx].y + dy;
 
-                            // Check collision with other ships
+                            // Comprobar colisión con otros barcos
                             int collision = 0;
                             for (int i = 0; i < 100; i++)
                             {
@@ -510,39 +511,39 @@ int main(int argc, char* argv[])
 
                             if (collision)
                             {
-                                fprintf(stderr, "Cannot realize %sward movement action for ship %d (collision).\n",
+                                fprintf(stderr, "No se puede realizar el movimiento hacia %s para el barco %d (colisión).\n",
                                         action, target_id);
                             }
                             else
                             {
-                                // Check map bounds/rocks
+                                // Comprobar límites del mapa/rocas
                                 if (!map_can_sail(map, new_x, new_y))
                                 {
-                                    fprintf(stderr, "Cannot move %s: Destination is blocked/rock.\n", action);
+                                    fprintf(stderr, "No se puede mover hacia %s: El destino está bloqueado/roca.\n", action);
                                 }
                                 else
                                 {
-                                    // Send Command
+                                    // Enviar Comando
                                     dprintf(launched_ships[found_idx].pipe_to_ship[1], "%s\n", action);
 
-                                    // Wait for OK/NOK using getline
+                                    // Esperar confirmación OK/NOK usando getline
                                     ssize_t n = getline(&resp_line, &resp_len, launched_ships[found_idx].read_stream);
 
                                     if (n > 0)
                                     {
-                                        // Trim newline
+                                        // Recortar salto de línea
                                         resp_line[strcspn(resp_line, "\n")] = 0;
                                         if (strcmp(resp_line, "OK") == 0)
                                         {
-                                            // Update position ONLY if confirmed
+                                            // Actualizar posición SOLO si es confirmado
                                             launched_ships[found_idx].x = new_x;
                                             launched_ships[found_idx].y = new_y;
-                                            fprintf(stderr, "Ship %d moved %s to (%d, %d)\n", target_id, action, new_x,
+                                            fprintf(stderr, "Barco %d movido hacia %s a (%d, %d)\n", target_id, action, new_x,
                                                     new_y);
                                         }
                                         else
                                         {
-                                            fprintf(stderr, "Ship %d rejected move\n",
+                                            fprintf(stderr, "Barco %d rechazó el movimiento\n",
                                                     target_id);
                                         }
                                     }
@@ -551,14 +552,14 @@ int main(int argc, char* argv[])
                         }
                         else
                         {
-                            fprintf(stderr, "Unknown command: %s\n", action);
+                            fprintf(stderr, "Comando desconocido: %s\n", action);
                         }
                     }
                     else
                     {
-                        fprintf(stderr, "Ship %d not found or not alive.\n", target_id);
+                        fprintf(stderr, "Barco %d no encontrado o no está vivo.\n", target_id);
                     }
-                    fprintf(stderr, "Number of ships alive: %d\n", ships_count);
+                    fprintf(stderr, "Número de barcos vivos: %d\n", ships_count);
                 }
             }
         }
@@ -566,13 +567,13 @@ int main(int argc, char* argv[])
         if (resp_line) free(resp_line);
     }
 
-    fprintf(stderr, "[Captain] Waiting for ships to finish...\n");
+    fprintf(stderr, "[Capitán] Esperando a que los barcos terminen...\n");
     while (ships_count > 0)
     {
         pause();
     }
 
-    fprintf(stderr, "[Captain] All ships have returned. Terminating execution.\n");
+    fprintf(stderr, "[Capitán] Todos los barcos han regresado. Terminando ejecución.\n");
     map_destroy(map);
     return EXIT_SUCCESS;
 }

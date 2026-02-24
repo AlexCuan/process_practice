@@ -9,12 +9,12 @@
 #include "map.h"
 #include <signal.h>
 
-// Directions: Right, Down, Left, Up. The logic is, since is a 2D array, the first index is the row (y) and the second
-// is the column (x). If you increase the row, you go down. If you increase the column, you go right.
+// Direcciones: Derecha, Abajo, Izquierda, Arriba. La lógica es, dado que es un array 2D, el primer índice es la fila (y) y el segundo
+// es la columna (x). Si incrementas la fila, vas hacia abajo. Si incrementas la columna, vas a la derecha.
 int directions[4][2] = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
 
 /**
- * @brief Structure to represent the ship's state, including its position, resources, and map reference.
+ * @brief Estructura para representar el estado del barco, incluyendo su posición, recursos y referencia al mapa.
 */
 typedef struct
 {
@@ -26,16 +26,16 @@ typedef struct
     pid_t pid;
 } Ship;
 
-// Global variables for Signal Handlers
+// Variables globales para los Manejadores de Señales
 Ship* aux_ship = NULL;
 int ship_speed = 1;
 int steps_remaining = -1;
 FILE* ursula_pipe = NULL;
 
-// Functions to notify Ursula of ship events.
+// Funciones para notificar a Ursula los eventos del barco.
 
 /**
- * @brief Sends a formatted message to Ursula whenever the ship moves, including its current position and resources.
+ * @brief Envía un mensaje formateado a Ursula cada vez que el barco se mueve, incluyendo su posición actual y recursos.
 */
 void notify_ursula_move(Ship* s)
 {
@@ -48,7 +48,7 @@ void notify_ursula_move(Ship* s)
 }
 
 /**
- * @brief Sends a formatted message to Ursula when the ship is initialized, including its starting position and resources.
+ * @brief Envía un mensaje formateado a Ursula cuando el barco es inicializado, incluyendo su posición inicial y recursos.
 */
 void notify_ursula_init(Ship* s)
 {
@@ -61,7 +61,7 @@ void notify_ursula_init(Ship* s)
 }
 
 /**
- * @brief Sends a formatted message to Ursula when the ship is terminating, indicating that it has finished its journey.
+ * @brief Envía un mensaje formateado a Ursula cuando el barco va a terminar, indicando que ha finalizado su viaje.
 */
 void notify_ursula_terminate(Ship* s)
 {
@@ -76,31 +76,29 @@ void notify_ursula_terminate(Ship* s)
 }
 
 /**
- *  @brief Checks the current cell type on the map and updates the ship's resources accordingly.
- *  If the ship is on a BAR cell, it gains gold; if it's on a HOME cell, it gains food.
- *  It also logs these events for debugging purposes.
- * @param s Pointer to the Ship structure whose current position is being evaluated for events.
+ *  @brief Comprueba el tipo de celda actual en el mapa y actualiza los recursos del barco en consecuencia.
+ *  Si el barco está en una celda BAR, gana oro; si está en una celda HOME, gana comida.
+ *  También registra estos eventos en la consola para propósitos de depuración.
+ * @param s Puntero a la estructura Ship cuya posición actual está siendo evaluada.
  */
 void check_event(Ship* s)
 {
     char cell_type = map_get_cell_type(s->mapa, s->x, s->y);
     if (cell_type == BAR)
     {
-        s->gold += 10;
         fprintf(stderr, "Barco %d ha alcanzado una isla (%d, %d), oro incrementado a %d.\n", s->pid, s->x, s->y,
                 s->gold);
     }
     else if (cell_type == HOME)
     {
-        s->food += 20;
         fprintf(stderr, "Barco %d ha atracado con un puerto (%d, %d), comida aumentada a %d.\n", s->pid, s->x, s->y,
                 s->food);
     }
 }
 
 /**
- * @brief Signal handler for SIGUSR1 to increase the ship's gold by 10 when the signal is received.
- * @param signal Signal number (unused)
+ * @brief Manejador de señal para SIGUSR1 para incrementar el oro del barco en 10 cuando se recibe la señal.
+ * @param signal Número de señal (no usado)
  */
 void sigusr1_handler(int signal)
 {
@@ -114,10 +112,10 @@ void sigusr1_handler(int signal)
 }
 
 /**
- * @brief Signal handler for SIGUSR2 to reduce resources
- * It reduces its food and gold by 10 each (not going below zero).
- * It logs the new state of the ship after the attack for debugging purposes.
- * @param signal Signal number (unused)
+ * @brief Manejador de señal para SIGUSR2 para reducir recursos
+ * Reduce su comida y oro en 10 cada uno (sin bajar de cero).
+ * Registra el nuevo estado del barco después del ataque para propósitos de depuración.
+ * @param signal Número de señal (no usado)
  */
 void sigusr2_handler(int signal)
 {
@@ -141,16 +139,16 @@ void sigusr2_handler(int signal)
         {
             aux_ship->food = 0;
         }
-        fprintf(stderr, "Barco %d: Señal USR2 recibida (Ataque!). Comida restante: %d, Oro restante: %d\n",
-                       aux_ship->pid, aux_ship->food, aux_ship->gold);
+        fprintf(stderr, "Barco %d: Señal USR2 recibida (¡Ataque!). Comida restante: %d, Oro restante: %d\n",
+                aux_ship->pid, aux_ship->food, aux_ship->gold);
     }
 }
 
 /**
- * @brief Signal handler for SIGQUIT to perform an orderly shutdown of the ship when the signal is received.
- * It logs the final state of the ship, notifies Ursula of termination, cleans up resources,
- * and exits with the final gold as the exit code.
- * @param signal
+ * @brief Manejador de señal para SIGQUIT para realizar un cierre ordenado del barco cuando se recibe la señal.
+ * Registra el estado final del barco, notifica a Ursula de la terminación, limpia recursos,
+ * y sale con el oro final como código de salida.
+ * @param signal Número de señal (no usado)
  */
 void sigquit_handler(int signal)
 {
@@ -161,7 +159,7 @@ void sigquit_handler(int signal)
         fprintf(stderr, "Barco %d ha terminado con estado %d (SIGQUIT).\n",
                 aux_ship->pid, end_gold);
 
-        // Notify Ursula before dying
+        // Notificar a Ursula antes de morir
         notify_ursula_terminate(aux_ship);
 
         if (aux_ship->mapa) map_destroy(aux_ship->mapa);
@@ -171,9 +169,9 @@ void sigquit_handler(int signal)
 }
 
 /**
- * @brief Signal handler for SIGTSTP to print the current status of the ship when the signal is received.
- * It logs the ship's PID, location, food, and gold for debugging purposes.
- * @param signal Signal number (unused)
+ * @brief Manejador de señal para SIGTSTP para imprimir el estado actual del barco cuando se recibe la señal.
+ * Registra el PID del barco, ubicación, comida y oro para propósitos de depuración.
+ * @param signal Número de señal (no usado)
  */
 void sigstp_handler(int signal)
 {
@@ -187,11 +185,11 @@ void sigstp_handler(int signal)
 }
 
 /**
- * @brief Signal handler for SIGALRM to perform random movement of the ship at regular intervals.
- * It checks if the ship has remaining steps and enough food to move, then randomly selects a direction and attempts to move.
- * If the move is successful, it updates the ship's position, reduces food, checks for events, and notifies Ursula of the move.
- * If the ship runs out of steps or food, it logs the appropriate message and may terminate if steps are exhausted.
- * @param signal Signal number (unused)
+ * @brief Manejador de señal para SIGALRM para realizar el movimiento aleatorio del barco a intervalos regulares.
+ * Comprueba si el barco tiene pasos restantes y suficiente comida para moverse, luego selecciona aleatoriamente una dirección e intenta moverse.
+ * Si el movimiento es exitoso, actualiza la posición del barco, reduce la comida, comprueba eventos, y notifica a Ursula del movimiento.
+ * Si el barco se queda sin pasos o comida, registra el mensaje apropiado y puede terminar si los pasos se agotan.
+ * @param signal Número de señal (no usado)
  */
 void sigalrm_handler(int signal)
 {
@@ -201,7 +199,7 @@ void sigalrm_handler(int signal)
         if (steps_remaining == 0)
         {
             fprintf(stderr, "Barco %d ha terminado sus pasos aleatorios.\n", aux_ship->pid);
-            notify_ursula_terminate(aux_ship); // [Step 5]
+            notify_ursula_terminate(aux_ship);
             exit(aux_ship->gold);
         }
 
@@ -211,10 +209,10 @@ void sigalrm_handler(int signal)
         }
         else
         {
-            // If we use rand() % 4, we get a number between 0 and 3
+            // Si usamos rand() % 4, obtenemos un número entre 0 y 3
             int dir_idx = rand() % 4;
-            // We use the dir_idx to get the corresponding (random) direction from the directions array and calculate
-            // the new position.
+            // Usamos dir_idx para obtener la dirección (aleatoria) correspondiente del array directions y calcular
+            // la nueva posición.
             int dx = directions[dir_idx][0];
             int dy = directions[dir_idx][1];
             int new_x = aux_ship->x + dx;
@@ -230,7 +228,7 @@ void sigalrm_handler(int signal)
                 aux_ship->food -= 5;
                 check_event(aux_ship);
 
-                // Notify Ursula of random move
+                // Notificar a Ursula del movimiento aleatorio
                 notify_ursula_move(aux_ship);
 
                 fprintf(stderr, "Barco %d en (%d, %d) con %d comida y %d oro.\n",
@@ -247,47 +245,47 @@ void sigalrm_handler(int signal)
 }
 
 /**
- * @brief Sets up signal handlers for the ship process, including handlers for SIGUSR1, SIGUSR2, SIGQUIT, SIGTSTP, and SIGALRM.
- * Each handler is associated with its corresponding function to manage ship behavior in response to signals.
- * If any signal handler setup fails, it prints an error message and exits the process.
+ * @brief Configura los manejadores de señales para el proceso del barco, incluyendo manejadores para SIGUSR1, SIGUSR2, SIGQUIT, SIGTSTP y SIGALRM.
+ * Cada manejador está asociado con su función correspondiente para manejar el comportamiento del barco en respuesta a las señales.
+ * Si la configuración de algún manejador de señal falla, imprime un mensaje de error y el proceso termina.
  */
 void setup_signals()
 {
     if (signal(SIGUSR1, sigusr1_handler) == SIG_ERR)
     {
-        perror("Error setting up SIGUSR1");
+        perror("Error configurando SIGUSR1");
         exit(EXIT_FAILURE);
     }
     if (signal(SIGUSR2, sigusr2_handler) == SIG_ERR)
     {
-        perror("Error setting up SIGUSR2");
+        perror("Error configurando SIGUSR2");
         exit(EXIT_FAILURE);
     }
     if (signal(SIGQUIT, sigquit_handler) == SIG_ERR)
     {
-        perror("Error setting up SIGQUIT");
+        perror("Error configurando SIGQUIT");
         exit(EXIT_FAILURE);
     }
     if (signal(SIGTSTP, sigstp_handler) == SIG_ERR)
     {
-        perror("Error setting up SIGTSTP");
+        perror("Error configurando SIGTSTP");
         exit(EXIT_FAILURE);
     }
     if (signal(SIGALRM, sigalrm_handler) == SIG_ERR)
     {
-        perror("Error setting up SIGALRM");
+        perror("Error configurando SIGALRM");
         exit(EXIT_FAILURE);
     }
 }
 
 /**
- * @brief Attempts to shift the ship's position by the specified amounts in the x and y directions.
- * It checks if the ship has enough food to move and if the new position is navigable on the map.
- * If the move is successful, it updates the ship's position, reduces food, checks for events, and notifies Ursula of the move.
- * If the move is blocked or if there isn't enough food, it logs the appropriate message and responds with "NOK".
- * @param s Pointer to the Ship structure that is attempting to move.
- * @param shift_x The amount to shift in the x direction (positive for right, negative for left).
- * @param shift_y The amount to shift in the y direction (positive for down, negative for up).
+ * @brief Intenta desplazar la posición del barco por las cantidades especificadas en las direcciones x e y.
+ * Comprueba si el barco tiene suficiente comida para moverse y si la nueva posición es navegable en el mapa.
+ * Si el movimiento es exitoso, actualiza la posición del barco, reduce la comida, comprueba eventos, y notifica a Ursula del movimiento.
+ * Si el movimiento está bloqueado o si no hay suficiente comida, registra el mensaje apropiado y responde con "NOK".
+ * @param s Puntero a la estructura Ship que está intentando moverse.
+ * @param shift_x La cantidad a desplazar en la dirección x (positivo para derecha, negativo para izquierda).
+ * @param shift_y La cantidad a desplazar en la dirección y (positivo para abajo, negativo para arriba).
  */
 void shift_position(Ship* s, int shift_x, int shift_y)
 {
@@ -312,10 +310,10 @@ void shift_position(Ship* s, int shift_x, int shift_y)
 
         check_event(s);
 
-        // Notify Ursula of captain-commanded move
+        // Notificar a Ursula del movimiento ordenado por el capitán
         notify_ursula_move(s);
 
-        map_print(s->mapa); // Optional debug
+        map_print(s->mapa); // Opcional para depuración
         printf("OK\n");
         fflush(stdout);
         fprintf(stderr, "Barco %d en (%d, %d) con %d comida y %d oro.\n",
@@ -330,10 +328,10 @@ void shift_position(Ship* s, int shift_x, int shift_y)
 }
 
 /**
- * @brief Main loop for command mode, allowing the user to input movement commands for the ship.
- * It reads commands from standard input, processes them to move the ship accordingly, and handles the "exit" command to terminate.
- * The function also logs the ship's PID and current mode for debugging purposes.
- * @param s Pointer to the Ship structure that will be controlled through commands.
+ * @brief Bucle principal para el modo comando, permitiendo al usuario introducir comandos de movimiento para el barco.
+ * Lee comandos de la entrada estándar, los procesa para mover el barco correspondientemente, y maneja el comando "salir" para terminar.
+ * La función también registra el PID del barco y el modo actual para propósitos de depuración.
+ * @param s Puntero a la estructura Ship que será controlada a través de comandos.
  */
 void command_mode(Ship* s)
 {
@@ -343,7 +341,7 @@ void command_mode(Ship* s)
 
     alarm(0);
 
-    fprintf(stderr, "Barco PID: %d. Modo captain\n", s->pid);
+    fprintf(stderr, "Barco PID: %d. Modo capitán\n", s->pid);
 
     while ((nread = getline(&line, &len, stdin)) != -1)
     {
@@ -365,13 +363,13 @@ void command_mode(Ship* s)
 }
 
 /**
- * @brief Initializes the ship's state, including its position, resources, and map reference.
- * It also sets the ship's PID and marks its initial position on the map.
- * @param s Pointer to the Ship structure to be initialized.
- * @param mapa Pointer to the Map structure that the ship will navigate.
- * @param x Initial x-coordinate of the ship's position.
- * @param y Initial y-coordinate of the ship's position.
- * @param food Initial amount of food resources for the ship.
+ * @brief Inicializa el estado del barco, incluyendo su posición, recursos y referencia al mapa.
+ * También establece el PID del barco y marca su posición inicial en el mapa.
+ * @param s Puntero a la estructura Ship a ser inicializada.
+ * @param mapa Puntero a la estructura Map por la que navegará el barco.
+ * @param x Coordenada x inicial de la posición del barco.
+ * @param y Coordenada y inicial de la posición del barco.
+ * @param food Cantidad inicial de recursos de comida para el barco.
  */
 void ship_init(Ship* s, Map* mapa, int x, int y, int food)
 {
@@ -386,21 +384,21 @@ void ship_init(Ship* s, Map* mapa, int x, int y, int food)
 
 
 /**
- * @brief Parses command-line arguments to configure the ship's initial state and behavior.
- * It supports options for specifying the map file, initial position, food, random movement parameters, captain mode, and Ursula pipe.
- * The function validates the arguments and updates the corresponding variables accordingly.
- * If any argument is invalid or if required parameters are missing, it prints an error message and returns a non-zero value.
- * @param argc Argument count from the command line.
- * @param argv Argument vector from the command line.
- * @param map_file Pointer to a string that will hold the map file name (default "map.txt").
- * @param pos_x Pointer to an integer that will hold the initial x-coordinate of the ship (default 1).
- * @param pos_y Pointer to an integer that will hold the initial y-coordinate of the ship (default 1).
- * @param food Pointer to an integer that will hold the initial amount of food for the ship (default 100).
- * @param random_steps Pointer to an integer that will hold the number of random steps for random mode (default -1, meaning not set).
- * @param random_speed Pointer to an integer that will hold the speed of random movement in seconds (default 1).
- * @param use_captain Pointer to an integer that will be set to 1 if captain mode is enabled (default 0).
- * @param ursula_pipe Pointer to a string that will hold the name of the pipe for Ursula communication (default NULL).
- * @return Returns 0 on successful parsing, or a non-zero value if there was an error with the arguments.
+ * @brief Analiza los argumentos de línea de comandos para configurar el estado inicial y el comportamiento del barco.
+ * Soporta opciones para especificar el archivo del mapa, posición inicial, comida, parámetros de movimiento aleatorio, modo capitán y pipe de Ursula.
+ * La función valida los argumentos y actualiza las variables correspondientes en consecuencia.
+ * Si algún argumento es inválido o si faltan parámetros requeridos, imprime un mensaje de error y devuelve un valor distinto de cero.
+ * @param argc Cantidad de argumentos de la línea de comandos.
+ * @param argv Vector de argumentos de la línea de comandos.
+ * @param map_file Puntero a un string que contendrá el nombre del archivo del mapa (por defecto "map.txt").
+ * @param pos_x Puntero a un entero que contendrá la coordenada x inicial del barco (por defecto 1).
+ * @param pos_y Puntero a un entero que contendrá la coordenada y inicial del barco (por defecto 1).
+ * @param food Puntero a un entero que contendrá la cantidad inicial de comida para el barco (por defecto 100).
+ * @param random_steps Puntero a un entero que contendrá el número de pasos aleatorios para el modo aleatorio (por defecto -1, no establecido).
+ * @param random_speed Puntero a un entero que contendrá la velocidad del movimiento aleatorio en segundos (por defecto 1).
+ * @param use_captain Puntero a un entero que se establecerá a 1 si el modo capitán está habilitado (por defecto 0).
+ * @param ursula_pipe Puntero a un string que contendrá el nombre de la tubería para la comunicación con Ursula (por defecto NULL).
+ * @return Devuelve 0 en caso de análisis exitoso, o un valor distinto de cero si hubo un error con los argumentos.
  */
 static int parse_args(int argc, char* argv[], char** map_file, int* pos_x, int* pos_y,
                       int* food, int* random_steps, int* random_speed, int* use_captain, char** ursula_pipe)
@@ -482,7 +480,6 @@ static int parse_args(int argc, char* argv[], char** map_file, int* pos_x, int* 
 
         else if (strcmp(argv[i], "--ursula") == 0 && i + 1 < argc)
         {
-            // [Step 5]
             *ursula_pipe = argv[++i];
         }
     }
@@ -506,14 +503,14 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-    // Connect to Ursula
+    // Conectar a Ursula
     if (ursula_fifo)
     {
         ursula_pipe = fopen(ursula_fifo, "w");
         if (!ursula_pipe)
         {
-            perror("Failed to open Ursula pipe in ship");
-            // We continue running, just without Ursula reporting
+            perror("Fallo al abrir la tubería de Ursula en el barco");
+            // Continuamos la ejecución, pero sin reportar a Ursula
         }
     }
 
